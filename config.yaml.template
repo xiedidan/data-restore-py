@@ -27,8 +27,7 @@ ddl_directory: "./ddl"
 # Recommended values:
 #   - 100-500: Fast processing, good for most cases
 #   - 1000-2000: Better analysis for complex schemas
-#   - 5000+: Comprehensive analysis (slower for large files)
-sample_lines: 500
+#   - 5000+: Comprehensive analysis (slower for large files
 
 # Target encoding for PostgreSQL (optional)
 # Most PostgreSQL installations use UTF-8
@@ -56,8 +55,11 @@ deepseek:
   base_url: "https://api.deepseek.com"
   
   # API request timeout in seconds (optional)
-  # Increase if you have slow network connection
-  timeout: 30
+  # Recommended values:
+  #   - 30-60s for deepseek-chat and deepseek-coder
+  #   - 60-120s for deepseek-reasoner (needs more time for reasoning)
+  # Increase if you have slow network connection or frequent timeouts
+  timeout: 120
   
   # Maximum number of retry attempts for failed API calls (optional)
   # Helps handle temporary network issues

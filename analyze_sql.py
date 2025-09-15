@@ -67,6 +67,7 @@ class SQLAnalyzer:
             model=config.deepseek.model,
             timeout=config.deepseek.timeout,
             max_retries=config.deepseek.max_retries,
+            max_samples=min(config.sample_lines // 10, 50),  # Use reasonable portion of sample_lines, max 50
             logger=self.logger
         )
         self.report_generator = ReportGenerator()
@@ -97,6 +98,9 @@ class SQLAnalyzer:
         # Display file summary
         total_size_bytes, total_size_mb = self.file_scanner.get_total_size(files)
         self.logger.info(f"Total size: {total_size_mb:.2f} MB ({total_size_bytes:,} bytes)")
+        
+        # Display configuration info
+        self.logger.debug(f"DeepSeek configuration: model={self.config.deepseek.model}, timeout={self.config.deepseek.timeout}s, max_retries={self.config.deepseek.max_retries}")
         
         # Test DeepSeek API connection
         if not self._test_api_connection():

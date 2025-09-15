@@ -26,7 +26,7 @@ class DeepSeekClient:
     
     def __init__(self, api_key: str, base_url: str = "https://api.deepseek.com", 
                  model: str = "deepseek-reasoner", timeout: int = 30, max_retries: int = 3, 
-                 logger: Optional[Logger] = None):
+                 max_samples: int = 10, logger: Optional[Logger] = None):
         """
         Initialize DeepSeek API client.
         
@@ -36,6 +36,7 @@ class DeepSeekClient:
             model: DeepSeek model to use
             timeout: Request timeout in seconds
             max_retries: Maximum number of retry attempts
+            max_samples: Maximum number of sample INSERT statements to use
             logger: Optional logger instance
         """
         self.api_key = api_key
@@ -43,6 +44,7 @@ class DeepSeekClient:
         self.model = model
         self.timeout = timeout
         self.max_retries = max_retries
+        self.max_samples = max_samples
         self.logger = logger or Logger()
         
         # API endpoints
@@ -73,7 +75,7 @@ class DeepSeekClient:
             # Build the prompt
             prompt = self._build_prompt(table_name, sample_inserts)
             
-            self.logger.debug(f"Sending request to DeepSeek API for table {table_name}")
+            self.logger.debug(f"Sending request to DeepSeek API for table {table_name} (timeout: {self.timeout}s)")
             
             # Make API request with retries
             response_data = self._make_api_request(prompt)
@@ -117,7 +119,7 @@ class DeepSeekClient:
             Formatted prompt string
         """
         # Limit the number of sample inserts to avoid token limits
-        max_samples = min(len(sample_inserts), 10)
+        max_samples = min(len(sample_inserts), self.max_samples)
         limited_samples = sample_inserts[:max_samples]
         
         prompt = f"""You are a database migration expert. I need you to generate a PostgreSQL CREATE TABLE statement based on the following Oracle INSERT statements.
@@ -184,6 +186,12 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
             "stream": False
         }
         
+        # For reasoner model, use longer timeout if not already set
+        actual_timeout = self.timeout
+        if self.model == "deepseek-reasoner" and self.timeout < 60:
+            actual_timeout = max(self.timeout, 60)
+            self.logger.debug(f"Using extended timeout for reasoner model: {actual_timeout}s")
+        
         last_exception = None
         
         for attempt in range(self.max_retries):
@@ -197,7 +205,7 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
                     self.chat_endpoint,
                     headers=self.headers,
                     json=request_data,
-                    timeout=self.timeout
+                    timeout=actual_timeout
                 )
                 
                 # Check for HTTP errors
@@ -223,19 +231,19 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
                 
             except requests.exceptions.Timeout:
                 last_exception = Exception(f"API request timeout after {self.timeout} seconds")
-                self.logger.warning(f"Request timeout on attempt {attempt + 1}")
+                self.logger.warning(f"Request timeout on attempt {attempt + 1} (waited {self.timeout}s)")
                 
-            except requests.exceptions.ConnectionError:
-                last_exception = Exception("Failed to connect to DeepSeek API")
-                self.logger.warning(f"Connection error on attempt {attempt + 1}")
+            except requests.exceptions.ConnectionError as e:
+                last_exception = Exception(f"Failed to connect to DeepSeek API: {str(e)}")
+                self.logger.warning(f"Connection error on attempt {attempt + 1}: {str(e)}")
                 
             except requests.exceptions.RequestException as e:
                 last_exception = Exception(f"Request error: {str(e)}")
                 self.logger.warning(f"Request error on attempt {attempt + 1}: {str(e)}")
                 
-            except json.JSONDecodeError:
-                last_exception = Exception("Invalid JSON response from API")
-                self.logger.warning(f"JSON decode error on attempt {attempt + 1}")
+            except json.JSONDecodeError as e:
+                last_exception = Exception(f"Invalid JSON response from API: {str(e)}")
+                self.logger.warning(f"JSON decode error on attempt {attempt + 1}: {str(e)}")
                 
             except Exception as e:
                 last_exception = e
@@ -363,7 +371,7 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
                 self.chat_endpoint,
                 headers=self.headers,
                 json=request_data,
-                timeout=10
+                timeout=self.timeout
             )
             
             return response.status_code == 200
