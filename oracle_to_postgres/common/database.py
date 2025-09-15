@@ -2,9 +2,13 @@
 PostgreSQL database connection and management utilities.
 """
 
-import psycopg2
-import psycopg2.pool
-from psycopg2 import sql
+try:
+    import psycopg2
+    import psycopg2.pool
+    import psycopg2.extras
+    from psycopg2 import sql
+except ImportError as e:
+    raise ImportError(f"Failed to import psycopg2: {e}. Please install with: pip install psycopg2-binary")
 from typing import Optional, List, Dict, Any, Tuple
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -59,17 +63,32 @@ class DatabaseManager:
         
         self._pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
         self._connection_tested = False
+        self._has_dict_cursor = False
     
     def initialize_pool(self) -> None:
         """Initialize connection pool."""
         try:
             self.logger.info("Initializing PostgreSQL connection pool...")
             
+            # Try to use RealDictCursor, fallback to regular cursor if not available
+            cursor_factory = None
+            try:
+                if hasattr(psycopg2, 'extras') and hasattr(psycopg2.extras, 'RealDictCursor'):
+                    cursor_factory = psycopg2.extras.RealDictCursor
+                    self._has_dict_cursor = True
+                    self.logger.debug("Using RealDictCursor for result dictionaries")
+                else:
+                    self._has_dict_cursor = False
+                    self.logger.warning("RealDictCursor not available, using default cursor")
+            except Exception as e:
+                self._has_dict_cursor = False
+                self.logger.warning(f"Failed to access RealDictCursor: {e}, using default cursor")
+            
             self._pool = psycopg2.pool.ThreadedConnectionPool(
                 minconn=1,
                 maxconn=self.pool_size,
                 dsn=self.connection_info.get_dsn(),
-                cursor_factory=psycopg2.extras.RealDictCursor
+                cursor_factory=cursor_factory
             )
             
             self.logger.info(f"✓ Connection pool initialized (size: {self.pool_size})")
