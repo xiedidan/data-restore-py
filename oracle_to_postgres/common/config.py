@@ -14,6 +14,7 @@ class DeepSeekConfig:
     """DeepSeek API configuration."""
     api_key: str = ""
     base_url: str = "https://api.deepseek.com"
+    model: str = "deepseek-reasoner"  # Default to reasoner model
     timeout: int = 30
     max_retries: int = 3
 
@@ -42,6 +43,7 @@ class LoggingConfig:
     """Logging configuration."""
     level: str = "INFO"
     file: str = "./migration.log"
+    show_progress_steps: bool = True  # Show detailed progress steps
 
 
 @dataclass
@@ -82,6 +84,7 @@ class Config:
             deepseek_data = data['deepseek']
             config.deepseek.api_key = deepseek_data.get('api_key', config.deepseek.api_key)
             config.deepseek.base_url = deepseek_data.get('base_url', config.deepseek.base_url)
+            config.deepseek.model = deepseek_data.get('model', config.deepseek.model)
             config.deepseek.timeout = deepseek_data.get('timeout', config.deepseek.timeout)
             config.deepseek.max_retries = deepseek_data.get('max_retries', config.deepseek.max_retries)
         
@@ -107,6 +110,7 @@ class Config:
             log_data = data['logging']
             config.logging.level = log_data.get('level', config.logging.level)
             config.logging.file = log_data.get('file', config.logging.file)
+            config.logging.show_progress_steps = log_data.get('show_progress_steps', config.logging.show_progress_steps)
         
         return config
     
@@ -144,6 +148,8 @@ class Config:
             config.deepseek.api_key = args.deepseek_api_key
         if hasattr(args, 'deepseek_base_url') and args.deepseek_base_url:
             config.deepseek.base_url = args.deepseek_base_url
+        if hasattr(args, 'deepseek_model') and args.deepseek_model:
+            config.deepseek.model = args.deepseek_model
         
         # Performance arguments
         if hasattr(args, 'max_workers') and args.max_workers:
@@ -156,6 +162,8 @@ class Config:
             config.logging.level = args.log_level
         if hasattr(args, 'log_file') and args.log_file:
             config.logging.file = args.log_file
+        if hasattr(args, 'simple_progress') and args.simple_progress:
+            config.logging.show_progress_steps = False
         
         return config
     
@@ -228,6 +236,11 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         type=str,
         help='Log file path (default: ./migration.log)'
     )
+    parser.add_argument(
+        '--simple-progress',
+        action='store_true',
+        help='Use simple progress display instead of detailed steps'
+    )
 
 
 def add_source_arguments(parser: argparse.ArgumentParser) -> None:
@@ -256,6 +269,12 @@ def add_deepseek_arguments(parser: argparse.ArgumentParser) -> None:
         '--deepseek-base-url',
         type=str,
         help='DeepSeek API base URL'
+    )
+    parser.add_argument(
+        '--deepseek-model',
+        type=str,
+        choices=['deepseek-reasoner', 'deepseek-chat', 'deepseek-coder'],
+        help='DeepSeek model to use (default: deepseek-reasoner)'
     )
 
 

@@ -44,6 +44,13 @@ deepseek:
   # Get your API key from: https://platform.deepseek.com/
   api_key: "your-deepseek-api-key-here"
   
+  # DeepSeek model to use (optional)
+  # Available models:
+  #   - deepseek-reasoner: Best for complex reasoning tasks (default, recommended)
+  #   - deepseek-chat: General purpose chat model
+  #   - deepseek-coder: Optimized for code generation
+  model: "deepseek-reasoner"
+  
   # DeepSeek API base URL (optional)
   # Usually no need to change this
   base_url: "https://api.deepseek.com"
@@ -121,6 +128,11 @@ logging:
   # All log messages will be written to this file
   # Use absolute path or relative to script location
   file: "./migration.log"
+  
+  # Show detailed progress steps (optional)
+  # true: Shows each step (encoding detection, parsing, DeepSeek API, saving)
+  # false: Shows simple file-by-file progress
+  show_progress_steps: true
 
 # =============================================================================
 # EXAMPLE CONFIGURATIONS FOR DIFFERENT SCENARIOS

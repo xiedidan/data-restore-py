@@ -43,6 +43,7 @@ Edit `config.yaml` with your specific settings:
 source_directory: "/path/to/your/oracle/dumps"
 deepseek:
   api_key: "your-actual-api-key"
+  model: "deepseek-reasoner"  # Optional: deepseek-reasoner (default), deepseek-chat, or deepseek-coder
 postgresql:
   database: "your_target_database"
   username: "your_username"
@@ -71,10 +72,11 @@ python analyze_sql.py --config config.yaml
 python analyze_sql.py \
   --source-directory /path/to/dumps \
   --deepseek-api-key your-api-key \
+  --deepseek-model deepseek-reasoner \
   --sample-lines 200
 
 # Mixed approach (config file + command line overrides)
-python analyze_sql.py --config config.yaml --sample-lines 50
+python analyze_sql.py --config config.yaml --deepseek-model deepseek-coder
 ```
 
 ### What It Does
@@ -296,6 +298,7 @@ psql -d mydb -c "SELECT schemaname, tablename, n_tup_ins FROM pg_stat_user_table
 | `--sample-lines` | Lines to sample per file | No | `100` |
 | `--deepseek-api-key` | DeepSeek API key | Yes | |
 | `--deepseek-base-url` | DeepSeek API URL | No | `https://api.deepseek.com` |
+| `--deepseek-model` | DeepSeek model to use | No | `deepseek-reasoner` |
 
 ### create_tables.py Specific Options
 

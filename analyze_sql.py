@@ -64,6 +64,7 @@ class SQLAnalyzer:
         self.deepseek_client = DeepSeekClient(
             api_key=config.deepseek.api_key,
             base_url=config.deepseek.base_url,
+            model=config.deepseek.model,
             timeout=config.deepseek.timeout,
             max_retries=config.deepseek.max_retries,
             logger=self.logger
@@ -105,10 +106,10 @@ class SQLAnalyzer:
         # Analyze each file
         results = []
         for i, file_info in enumerate(files, 1):
-            self.logger.progress(i, len(files), f"Analyzing {file_info.file_name}")
+            self.logger.progress(i, len(files), f"Processing {file_info.file_name}")
             
             try:
-                result = self._analyze_single_file(file_info)
+                result = self._analyze_single_file(file_info, i, len(files))
                 results.append(result)
                 
                 if result.ddl_generated:
@@ -137,8 +138,8 @@ class SQLAnalyzer:
         
         return results
     
-    def _analyze_single_file(self, file_info: FileInfo) -> AnalysisResult:
-        """Analyze a single SQL file."""
+    def _analyze_single_file(self, file_info: FileInfo, current_file: int, total_files: int) -> AnalysisResult:
+        """Analyze a single SQL file with detailed progress reporting."""
         import time
         start_time = time.time()
         
@@ -153,28 +154,59 @@ class SQLAnalyzer:
         )
         
         try:
-            # Step 1: Detect encoding
-            encoding_result = self._detect_file_encoding(file_info.file_path)
-            result.encoding = encoding_result.encoding
-            result.confidence = encoding_result.confidence
-            
-            # Step 2: Parse SQL statements
-            sample_inserts = self._parse_sql_file(file_info.file_path, encoding_result.encoding)
-            
-            if not sample_inserts:
-                result.error_message = "No INSERT statements found in file"
-                return result
-            
-            # Step 3: Generate DDL using DeepSeek API
-            ddl_result = self._generate_ddl(table_name, sample_inserts)
-            
-            if ddl_result.success:
-                # Step 4: Save DDL to file
-                ddl_file_path = self._save_ddl(table_name, ddl_result.ddl_content)
-                result.ddl_generated = True
-                result.ddl_file_path = ddl_file_path
+            if self.config.logging.show_progress_steps:
+                # Step 1: Detect encoding
+                self.logger.progress_step(current_file, total_files, "Detecting encoding", file_info.file_name)
+                encoding_result = self._detect_file_encoding(file_info.file_path)
+                result.encoding = encoding_result.encoding
+                result.confidence = encoding_result.confidence
+                
+                # Step 2: Parse SQL statements
+                self.logger.progress_step(current_file, total_files, "Parsing SQL statements", file_info.file_name)
+                sample_inserts = self._parse_sql_file(file_info.file_path, encoding_result.encoding)
+                
+                if not sample_inserts:
+                    result.error_message = "No INSERT statements found in file"
+                    return result
+                
+                # Step 3: Generate DDL using DeepSeek API
+                self.logger.progress_step(current_file, total_files, f"Generating DDL ({self.config.deepseek.model})", file_info.file_name)
+                ddl_result = self._generate_ddl(table_name, sample_inserts)
+                
+                if ddl_result.success:
+                    # Step 4: Save DDL to file
+                    self.logger.progress_step(current_file, total_files, "Saving DDL file", file_info.file_name)
+                    ddl_file_path = self._save_ddl(table_name, ddl_result.ddl_content)
+                    result.ddl_generated = True
+                    result.ddl_file_path = ddl_file_path
+                    
+                    # Show completion with timing info
+                    elapsed_time = time.time() - start_time
+                    self.logger.progress_step(current_file, total_files, f"✓ Completed ({elapsed_time:.1f}s)", file_info.file_name)
+                else:
+                    result.error_message = ddl_result.error_message or "DDL generation failed"
             else:
-                result.error_message = ddl_result.error_message or "DDL generation failed"
+                # Simple progress without detailed steps
+                self.logger.progress(current_file, total_files, f"Processing {file_info.file_name}")
+                
+                encoding_result = self._detect_file_encoding(file_info.file_path)
+                result.encoding = encoding_result.encoding
+                result.confidence = encoding_result.confidence
+                
+                sample_inserts = self._parse_sql_file(file_info.file_path, encoding_result.encoding)
+                
+                if not sample_inserts:
+                    result.error_message = "No INSERT statements found in file"
+                    return result
+                
+                ddl_result = self._generate_ddl(table_name, sample_inserts)
+                
+                if ddl_result.success:
+                    ddl_file_path = self._save_ddl(table_name, ddl_result.ddl_content)
+                    result.ddl_generated = True
+                    result.ddl_file_path = ddl_file_path
+                else:
+                    result.error_message = ddl_result.error_message or "DDL generation failed"
             
         except Exception as e:
             result.error_message = str(e)
@@ -339,6 +371,8 @@ Examples:
   python analyze_sql.py --config config.yaml
   python analyze_sql.py --source-directory /path/to/dumps
   python analyze_sql.py -s /path/to/dumps --config custom_config.yaml
+  python analyze_sql.py -s /path/to/dumps --deepseek-model deepseek-reasoner
+  python analyze_sql.py -s /path/to/dumps --simple-progress --log-level INFO
   python analyze_sql.py -s /path/to/dumps --sample-lines 50 --log-level DEBUG
         """
     )

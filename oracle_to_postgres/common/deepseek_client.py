@@ -25,19 +25,22 @@ class DeepSeekClient:
     """Client for interacting with DeepSeek API to generate PostgreSQL DDL."""
     
     def __init__(self, api_key: str, base_url: str = "https://api.deepseek.com", 
-                 timeout: int = 30, max_retries: int = 3, logger: Optional[Logger] = None):
+                 model: str = "deepseek-reasoner", timeout: int = 30, max_retries: int = 3, 
+                 logger: Optional[Logger] = None):
         """
         Initialize DeepSeek API client.
         
         Args:
             api_key: DeepSeek API key
             base_url: API base URL
+            model: DeepSeek model to use
             timeout: Request timeout in seconds
             max_retries: Maximum number of retry attempts
             logger: Optional logger instance
         """
         self.api_key = api_key
         self.base_url = base_url.rstrip('/')
+        self.model = model
         self.timeout = timeout
         self.max_retries = max_retries
         self.logger = logger or Logger()
@@ -65,16 +68,23 @@ class DeepSeekClient:
         start_time = time.time()
         
         try:
+            self.logger.debug(f"Building prompt for table {table_name} with {len(sample_inserts)} sample statements")
+            
             # Build the prompt
             prompt = self._build_prompt(table_name, sample_inserts)
             
+            self.logger.debug(f"Sending request to DeepSeek API for table {table_name}")
+            
             # Make API request with retries
             response_data = self._make_api_request(prompt)
+            
+            self.logger.debug(f"Parsing DeepSeek response for table {table_name}")
             
             # Parse the response
             ddl_content = self._parse_response(response_data)
             
             response_time = time.time() - start_time
+            self.logger.debug(f"DDL generation completed for {table_name} in {response_time:.2f}s")
             
             return DDLGenerationResult(
                 success=True,
@@ -162,7 +172,7 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
             Exception: If all retry attempts fail
         """
         request_data = {
-            "model": "deepseek-chat",
+            "model": self.model,
             "messages": [
                 {
                     "role": "user",
@@ -178,7 +188,10 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
         
         for attempt in range(self.max_retries):
             try:
-                self.logger.debug(f"Making DeepSeek API request (attempt {attempt + 1}/{self.max_retries})")
+                if attempt > 0:
+                    self.logger.info(f"Retrying DeepSeek API request (attempt {attempt + 1}/{self.max_retries})")
+                else:
+                    self.logger.debug(f"Making DeepSeek API request using model {self.model}")
                 
                 response = requests.post(
                     self.chat_endpoint,
@@ -341,7 +354,7 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
             test_prompt = "Please respond with 'OK' to confirm the connection."
             
             request_data = {
-                "model": "deepseek-chat",
+                "model": self.model,
                 "messages": [{"role": "user", "content": test_prompt}],
                 "max_tokens": 10
             }

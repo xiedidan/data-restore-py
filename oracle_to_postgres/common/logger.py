@@ -87,6 +87,29 @@ class Logger:
         self._clear_progress_line()
         self.info(message)
     
+    def progress_step(self, current: int, total: int, step_name: str, file_name: str = "") -> None:
+        """Display progress with step information for better user feedback."""
+        if total <= 0:
+            return
+        
+        percentage = (current / total) * 100
+        bar_length = 25  # Slightly shorter to make room for step info
+        filled_length = int(bar_length * current // total)
+        bar = '█' * filled_length + '-' * (bar_length - filled_length)
+        
+        progress_text = f"\r[{bar}] {percentage:.1f}% ({current}/{total})"
+        if file_name:
+            progress_text += f" | {file_name}"
+        if step_name:
+            progress_text += f" | {step_name}"
+        
+        # Clear previous progress line
+        self._clear_progress_line()
+        
+        # Print new progress
+        print(progress_text, end='', flush=True)
+        self._last_progress_length = len(progress_text)
+    
     def _clear_progress_line(self) -> None:
         """Clear the current progress line."""
         if self._last_progress_length > 0:
