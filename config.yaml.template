@@ -131,6 +131,27 @@ logging:
   file: "./migration.log"
 
 # =============================================================================
+# TABLE CREATION CONFIGURATION
+# =============================================================================
+# Controls behavior of create_tables.py script
+
+table_creation:
+  # Drop existing tables before creating new ones (optional)
+  # true: Automatically drop tables if they exist (useful for re-runs)
+  # false: Skip creation if table already exists (default, safer)
+  drop_existing: false
+  
+  # Stop execution on first error (optional)
+  # true: Stop immediately when any table creation fails
+  # false: Continue creating other tables even if some fail (default)
+  stop_on_error: false
+  
+  # Dry run mode - show what would be done without executing (optional)
+  # true: Only display what would be created, don't execute DDL
+  # false: Actually create the tables (default)
+  dry_run: false
+
+# =============================================================================
 # EXAMPLE CONFIGURATIONS FOR DIFFERENT SCENARIOS
 # =============================================================================
 

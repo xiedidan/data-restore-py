@@ -48,6 +48,14 @@ class LoggingConfig:
 
 
 @dataclass
+class TableCreationConfig:
+    """Table creation configuration."""
+    drop_existing: bool = False  # Drop existing tables before creating
+    stop_on_error: bool = False  # Stop execution on first error
+    dry_run: bool = False  # Only show what would be done, don't execute
+
+
+@dataclass
 class Config:
     """Main configuration class for the migration tool."""
     
@@ -63,6 +71,7 @@ class Config:
     postgresql: PostgreSQLConfig = field(default_factory=PostgreSQLConfig)
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
+    table_creation: TableCreationConfig = field(default_factory=TableCreationConfig)
     
     @classmethod
     def from_file(cls, config_path: str) -> 'Config':
@@ -115,6 +124,13 @@ class Config:
             config.logging.level = log_data.get('level', config.logging.level)
             config.logging.file = log_data.get('file', config.logging.file)
             config.logging.show_progress_steps = log_data.get('show_progress_steps', config.logging.show_progress_steps)
+        
+        # Table creation configuration
+        if 'table_creation' in data:
+            table_data = data['table_creation']
+            config.table_creation.drop_existing = table_data.get('drop_existing', config.table_creation.drop_existing)
+            config.table_creation.stop_on_error = table_data.get('stop_on_error', config.table_creation.stop_on_error)
+            config.table_creation.dry_run = table_data.get('dry_run', config.table_creation.dry_run)
         
         return config
     
@@ -172,6 +188,14 @@ class Config:
             config.logging.file = args.log_file
         if hasattr(args, 'simple_progress') and args.simple_progress:
             config.logging.show_progress_steps = False
+        
+        # Table creation arguments
+        if hasattr(args, 'drop_existing') and args.drop_existing:
+            config.table_creation.drop_existing = args.drop_existing
+        if hasattr(args, 'stop_on_error') and args.stop_on_error:
+            config.table_creation.stop_on_error = args.stop_on_error
+        if hasattr(args, 'dry_run') and args.dry_run:
+            config.table_creation.dry_run = args.dry_run
         
         return config
     
@@ -235,6 +259,14 @@ class Config:
                 self.logging.file = file_config.logging.file
             if self.logging.show_progress_steps == True:  # Default value
                 self.logging.show_progress_steps = file_config.logging.show_progress_steps
+            
+            # Table creation configuration
+            if self.table_creation.drop_existing == False:  # Default value
+                self.table_creation.drop_existing = file_config.table_creation.drop_existing
+            if self.table_creation.stop_on_error == False:  # Default value
+                self.table_creation.stop_on_error = file_config.table_creation.stop_on_error
+            if self.table_creation.dry_run == False:  # Default value
+                self.table_creation.dry_run = file_config.table_creation.dry_run
         
         return self
     
@@ -335,6 +367,25 @@ def add_deepseek_arguments(parser: argparse.ArgumentParser) -> None:
         '--deepseek-max-retries',
         type=int,
         help='Maximum number of DeepSeek API retry attempts'
+    )
+
+
+def add_table_creation_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add table creation command line arguments."""
+    parser.add_argument(
+        '--drop-existing',
+        action='store_true',
+        help='Drop existing tables before creating new ones (can be specified in config file)'
+    )
+    parser.add_argument(
+        '--stop-on-error',
+        action='store_true',
+        help='Stop execution on first error (can be specified in config file)'
+    )
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Show what would be done without executing DDL (can be specified in config file)'
     )
 
 

@@ -19,7 +19,7 @@ from typing import List
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from oracle_to_postgres.common.config import (
-    Config, add_common_arguments, add_postgresql_arguments
+    Config, add_common_arguments, add_postgresql_arguments, add_table_creation_arguments
 )
 from oracle_to_postgres.common.logger import Logger, TimedLogger
 from oracle_to_postgres.common.database import DatabaseManager, ConnectionInfo
@@ -271,6 +271,7 @@ Examples:
     # Add argument groups
     add_common_arguments(parser)
     add_postgresql_arguments(parser)
+    add_table_creation_arguments(parser)
     
     # Script-specific arguments
     parser.add_argument(
@@ -280,23 +281,7 @@ Examples:
         help='Directory containing DDL files (default: ./ddl)'
     )
     
-    parser.add_argument(
-        '--drop-existing',
-        action='store_true',
-        help='Drop existing tables before creating new ones'
-    )
-    
-    parser.add_argument(
-        '--stop-on-error',
-        action='store_true',
-        help='Stop execution on first error'
-    )
-    
-    parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help='Show what would be done without executing DDL'
-    )
+
     
     return parser
 
@@ -333,7 +318,7 @@ def main():
             raise ValueError("PostgreSQL username is required")
         
         # Handle dry run
-        if args.dry_run:
+        if config.table_creation.dry_run:
             print("DRY RUN MODE - No tables will be created")
             
             # Just scan and display DDL files
@@ -348,7 +333,7 @@ def main():
             for ddl_file in ddl_files:
                 print(f"  - {ddl_file.table_name} ({ddl_file.file_name})")
             
-            if args.drop_existing:
+            if config.table_creation.drop_existing:
                 print("\nWould drop existing tables before creation")
             
             return
@@ -358,8 +343,8 @@ def main():
         
         with TimedLogger(creator.logger, "Table creation"):
             results = creator.create_tables(
-                drop_existing=args.drop_existing,
-                stop_on_error=args.stop_on_error
+                drop_existing=config.table_creation.drop_existing,
+                stop_on_error=config.table_creation.stop_on_error
             )
         
         # Exit with appropriate code

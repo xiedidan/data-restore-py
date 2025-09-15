@@ -48,6 +48,9 @@ postgresql:
   database: "your_target_database"
   username: "your_username"
   password: "your_password"
+table_creation:
+  drop_existing: false  # Optional: set to true for development/testing
+  stop_on_error: false  # Optional: set to true to stop on first error
 ```
 
 ### Step 2: Verify Configuration
@@ -122,7 +125,7 @@ Report saved to: reports/analysis_report_20241215_143022.csv
 ### Basic Usage
 
 ```bash
-# Using configuration file
+# Using configuration file (recommended)
 python create_tables.py --config config.yaml
 
 # Using command line arguments (overrides config file)
@@ -131,6 +134,9 @@ python create_tables.py \
   --pg-username postgres \
   --pg-password mypass \
   --drop-existing
+
+# Mixed approach (config file + command line overrides)
+python create_tables.py --config config.yaml --drop-existing --dry-run
 ```
 
 ### What It Does
