@@ -43,23 +43,33 @@ def test_schema_replacement():
     # Test cases
     test_cases = [
         {
+            'input': 'INSERT INTO EMR_HIS.V_HIS_KSDMDZB (HISKSDM, HISKSMC) VALUES (1, \'test\')',
+            'expected_contains': '"public"."KSDMDZB"',
+            'not_contains': 'V_HIS_',
+            'description': 'INSERT with V_HIS_ prefix removal'
+        },
+        {
             'input': 'INSERT INTO EMR_HIS.V_HIS_MZJZXXB (ID, NAME) VALUES (1, \'test\')',
-            'expected_contains': '"public"."V_HIS_MZJZXXB"',
-            'description': 'INSERT with schema prefix'
+            'expected_contains': '"public"."MZJZXXB"',
+            'not_contains': 'V_HIS_',
+            'description': 'INSERT with schema and V_HIS_ prefix'
         },
         {
             'input': 'select * from EMR_HIS.V_HIS_MZJZXXB t WHERE id = 1',
-            'expected_contains': '"public"."V_HIS_MZJZXXB"',
-            'description': 'SELECT with schema prefix'
+            'expected_contains': '"public"."MZJZXXB"',
+            'not_contains': 'V_HIS_',
+            'description': 'SELECT with V_HIS_ prefix removal'
         },
         {
             'input': 'INSERT INTO USERS (ID, NAME) VALUES (1, \'test\')',
             'expected_contains': '"public"."USERS"',
+            'not_contains': 'V_HIS_',
             'description': 'INSERT without schema prefix'
         },
         {
             'input': 'UPDATE EMR_HIS.PATIENTS SET name = \'test\' WHERE id = 1',
             'expected_contains': '"public"."PATIENTS"',
+            'not_contains': 'V_HIS_',
             'description': 'UPDATE with schema prefix'
         }
     ]
@@ -81,6 +91,12 @@ def test_schema_replacement():
             print("✓ PASS - Original schema removed")
         else:
             print("✗ FAIL - Original schema still present")
+        
+        # Check that V_HIS_ prefix is removed
+        if test_case.get('not_contains') and test_case['not_contains'] not in result:
+            print("✓ PASS - V_HIS_ prefix removed")
+        elif test_case.get('not_contains') and test_case['not_contains'] in result:
+            print("✗ FAIL - V_HIS_ prefix still present")
 
 
 def test_transaction_handling():

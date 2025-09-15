@@ -92,6 +92,13 @@ class SQLRewriter:
             description="Replace schema in DELETE statements"
         ))
         
+        # Remove V_HIS_ prefix from table names (Oracle views -> PostgreSQL tables)
+        rules.append(RewriteRule(
+            pattern=r'V_HIS_(\w+)',
+            replacement=r'\1',
+            description="Remove V_HIS_ prefix from table names"
+        ))
+        
         # Oracle-specific date formats
         rules.append(RewriteRule(
             pattern=r"TO_DATE\s*\(\s*'([^']+)'\s*,\s*'([^']+)'\s*\)",
@@ -207,6 +214,9 @@ class SQLRewriter:
     
     def _process_insert_specific(self, statement: str) -> str:
         """Process INSERT-specific transformations."""
+        # First, handle table name mapping (remove Oracle view prefixes)
+        statement = self._map_table_names(statement)
+        
         # Handle any remaining unqualified table references
         # This catches cases where tables don't have schema prefixes
         insert_pattern = r'INSERT\s+INTO\s+(?!")([^.\s"]+)(?!")'
@@ -228,6 +238,23 @@ class SQLRewriter:
             return full_match.replace(f'{schema}.{table}', f'"{self.target_schema}"."{table}"')
         
         statement = re.sub(select_from_pattern, replace_select_schema, statement, flags=re.IGNORECASE | re.DOTALL)
+        
+        return statement
+    
+    def _map_table_names(self, statement: str) -> str:
+        """Map Oracle table/view names to PostgreSQL table names."""
+        # Remove V_HIS_ prefix from table names (Oracle views -> PostgreSQL tables)
+        # Pattern: "schema"."V_HIS_TABLENAME" -> "schema"."TABLENAME"
+        v_his_pattern = r'"([^"]+)"\."V_HIS_([^"]+)"'
+        statement = re.sub(v_his_pattern, r'"\1"."\2"', statement, flags=re.IGNORECASE)
+        
+        # Also handle unquoted versions: schema.V_HIS_TABLENAME -> schema.TABLENAME
+        v_his_unquoted_pattern = r'(\w+)\.V_HIS_(\w+)'
+        statement = re.sub(v_his_unquoted_pattern, r'\1.\2', statement, flags=re.IGNORECASE)
+        
+        # Handle cases where V_HIS_ appears without schema: V_HIS_TABLENAME -> TABLENAME
+        v_his_bare_pattern = r'\bV_HIS_(\w+)\b'
+        statement = re.sub(v_his_bare_pattern, r'\1', statement, flags=re.IGNORECASE)
         
         return statement
     
