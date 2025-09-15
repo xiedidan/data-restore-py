@@ -64,14 +64,17 @@ python analyze_sql.py --config config.yaml --help
 ### Basic Usage
 
 ```bash
-# Using configuration file
+# Using configuration file (recommended)
 python analyze_sql.py --config config.yaml
 
-# Using command line arguments
+# Using command line arguments (overrides config file)
 python analyze_sql.py \
   --source-directory /path/to/dumps \
   --deepseek-api-key your-api-key \
   --sample-lines 200
+
+# Mixed approach (config file + command line overrides)
+python analyze_sql.py --config config.yaml --sample-lines 50
 ```
 
 ### What It Does

@@ -23,9 +23,12 @@ source_directory: "/path/to/oracle/dumps"
 ddl_directory: "./ddl"
 
 # Number of lines to sample from each SQL file for analysis (optional)
-# Higher values provide better analysis but slower processing
-# Recommended: 100-500 for most cases
-sample_lines: 100
+# Higher values provide better analysis but slower processing for large files
+# Recommended values:
+#   - 100-500: Fast processing, good for most cases
+#   - 1000-2000: Better analysis for complex schemas
+#   - 5000+: Comprehensive analysis (slower for large files)
+sample_lines: 500
 
 # Target encoding for PostgreSQL (optional)
 # Most PostgreSQL installations use UTF-8

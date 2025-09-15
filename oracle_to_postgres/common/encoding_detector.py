@@ -23,9 +23,10 @@ class EncodingDetector:
     COMMON_ENCODINGS = [
         'utf-8',
         'utf-8-sig',  # UTF-8 with BOM
-        'gbk',
-        'gb2312',
-        'big5',
+        'gbk',        # GBK is superset of GB2312, try first for Chinese
+        'gb18030',    # Even more comprehensive Chinese encoding
+        'gb2312',     # Fallback for older Chinese files
+        'big5',       # Traditional Chinese
         'latin1',
         'cp1252',
         'iso-8859-1',
@@ -75,8 +76,22 @@ class EncodingDetector:
         
         # If chardet gives high confidence result, use it
         if chardet_result and chardet_result.confidence >= self.min_confidence:
+            detected_encoding = chardet_result.encoding.lower()
+            
+            # If detected as GB2312, try GBK first (GBK is superset of GB2312)
+            if detected_encoding == 'gb2312':
+                try:
+                    sample_data.decode('gbk')
+                    return EncodingResult(
+                        encoding='gbk',
+                        confidence=chardet_result.confidence,
+                        raw_encoding=chardet_result.encoding
+                    )
+                except (UnicodeDecodeError, UnicodeError):
+                    pass  # Fall back to original detection
+            
             return EncodingResult(
-                encoding=chardet_result.encoding.lower(),
+                encoding=detected_encoding,
                 confidence=chardet_result.confidence,
                 raw_encoding=chardet_result.encoding
             )
@@ -231,13 +246,14 @@ class EncodingDetector:
         except (UnicodeDecodeError, UnicodeError, IOError):
             return False
     
-    def read_file_safely(self, file_path: str, encoding: str = None) -> Tuple[str, str]:
+    def read_file_safely(self, file_path: str, encoding: str = None, max_size_mb: int = 100) -> Tuple[str, str]:
         """
         Safely read file content with automatic encoding detection and error handling.
         
         Args:
             file_path: Path to the file to read
             encoding: Specific encoding to use (auto-detect if None)
+            max_size_mb: Maximum file size to read in MB (for performance)
             
         Returns:
             Tuple of (content, actual_encoding_used)
@@ -254,30 +270,129 @@ class EncodingDetector:
         if ':' in encoding:
             encoding, error_strategy = encoding.split(':', 1)
         
+        # Check file size for performance optimization
+        file_size = os.path.getsize(file_path)
+        max_bytes = max_size_mb * 1024 * 1024
+        
         try:
             with open(file_path, 'r', encoding=encoding, errors=error_strategy) as f:
-                content = f.read()
+                if file_size > max_bytes:
+                    # For large files, read only the first part
+                    content = f.read(max_bytes)
+                else:
+                    content = f.read()
             return content, f"{encoding}:{error_strategy}" if error_strategy != 'strict' else encoding
         except UnicodeDecodeError as e:
+            # Try with GBK first if original was GB2312
+            if encoding == 'gb2312':
+                try:
+                    with open(file_path, 'r', encoding='gbk', errors='strict') as f:
+                        if file_size > max_bytes:
+                            content = f.read(max_bytes)
+                        else:
+                            content = f.read()
+                    return content, 'gbk'
+                except Exception:
+                    pass
+            
             # Try with replace strategy
             try:
                 with open(file_path, 'r', encoding=encoding, errors='replace') as f:
-                    content = f.read()
+                    if file_size > max_bytes:
+                        content = f.read(max_bytes)
+                    else:
+                        content = f.read()
                 return content, f"{encoding}:replace"
             except Exception:
                 # Try with ignore strategy
                 try:
                     with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
-                        content = f.read()
+                        if file_size > max_bytes:
+                            content = f.read(max_bytes)
+                        else:
+                            content = f.read()
                     return content, f"{encoding}:ignore"
                 except Exception:
                     # Last resort: try UTF-8 with replace
                     try:
                         with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
-                            content = f.read()
+                            if file_size > max_bytes:
+                                content = f.read(max_bytes)
+                            else:
+                                content = f.read()
                         return content, "utf-8:replace"
                     except Exception as final_e:
                         raise IOError(f"Cannot read file {file_path} with any encoding strategy: {final_e}")
+    
+    def read_file_sample_safely(self, file_path: str, encoding: str = None, sample_lines: int = 1000) -> Tuple[str, str]:
+        """
+        Safely read a sample of file content for analysis purposes.
+        Much faster for large files as it only reads the first N lines.
+        
+        Args:
+            file_path: Path to the file to read
+            encoding: Specific encoding to use (auto-detect if None)
+            sample_lines: Number of lines to read from the beginning
+            
+        Returns:
+            Tuple of (sample_content, actual_encoding_used)
+        """
+        if encoding is None:
+            detection_result = self.detect_encoding(file_path)
+            encoding = detection_result.encoding
+        
+        # Parse encoding and error strategy if specified
+        error_strategy = 'strict'
+        if ':' in encoding:
+            encoding, error_strategy = encoding.split(':', 1)
+        
+        try:
+            lines = []
+            with open(file_path, 'r', encoding=encoding, errors=error_strategy) as f:
+                for i, line in enumerate(f):
+                    if i >= sample_lines:
+                        break
+                    lines.append(line)
+            content = ''.join(lines)
+            return content, f"{encoding}:{error_strategy}" if error_strategy != 'strict' else encoding
+        except UnicodeDecodeError:
+            # Try with GBK first if original was GB2312
+            if encoding == 'gb2312':
+                try:
+                    lines = []
+                    with open(file_path, 'r', encoding='gbk', errors='strict') as f:
+                        for i, line in enumerate(f):
+                            if i >= sample_lines:
+                                break
+                            lines.append(line)
+                    content = ''.join(lines)
+                    return content, 'gbk'
+                except Exception:
+                    pass
+            
+            # Try with replace strategy
+            try:
+                lines = []
+                with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+                    for i, line in enumerate(f):
+                        if i >= sample_lines:
+                            break
+                        lines.append(line)
+                content = ''.join(lines)
+                return content, f"{encoding}:replace"
+            except Exception:
+                # Last resort: try UTF-8 with replace
+                try:
+                    lines = []
+                    with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                        for i, line in enumerate(f):
+                            if i >= sample_lines:
+                                break
+                            lines.append(line)
+                    content = ''.join(lines)
+                    return content, "utf-8:replace"
+                except Exception as final_e:
+                    raise IOError(f"Cannot read file {file_path} with any encoding strategy: {final_e}")
 
 
 class EncodingConverter:

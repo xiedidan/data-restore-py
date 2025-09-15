@@ -6,6 +6,7 @@ Analyzes Oracle SQL dump files to detect encoding and generate PostgreSQL DDL st
 using DeepSeek API.
 
 Usage:
+    python analyze_sql.py --config config.yaml
     python analyze_sql.py --source-directory /path/to/dumps --config config.yaml
 """
 
@@ -194,12 +195,18 @@ class SQLAnalyzer:
     def _parse_sql_file(self, file_path: str, encoding: str) -> List[str]:
         """Parse SQL file and extract sample INSERT statements."""
         try:
-            # Use safe file reading with encoding detection
-            content, actual_encoding = self.encoding_detector.read_file_safely(file_path, encoding)
+            # Use fast sample reading for large files
+            sample_lines = getattr(self.config, 'sample_lines', 2000)
+            content, actual_encoding = self.encoding_detector.read_file_sample_safely(
+                file_path, encoding, sample_lines=sample_lines
+            )
             
-            # Log if we had to use error handling
-            if ':' in actual_encoding and actual_encoding != encoding:
-                self.logger.warning(f"Used encoding fallback for {file_path}: {actual_encoding}")
+            # Log if we had to use error handling or encoding upgrade
+            if actual_encoding != encoding:
+                if actual_encoding == 'gbk' and encoding == 'gb2312':
+                    self.logger.info(f"Upgraded encoding from GB2312 to GBK for {file_path}")
+                elif ':' in actual_encoding:
+                    self.logger.warning(f"Used encoding fallback for {file_path}: {actual_encoding}")
             
             # Parse INSERT statements
             statements = self.sql_parser.parse_insert_statements(content, actual_encoding.split(':')[0])
@@ -329,6 +336,7 @@ def create_argument_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
+  python analyze_sql.py --config config.yaml
   python analyze_sql.py --source-directory /path/to/dumps
   python analyze_sql.py -s /path/to/dumps --config custom_config.yaml
   python analyze_sql.py -s /path/to/dumps --sample-lines 50 --log-level DEBUG

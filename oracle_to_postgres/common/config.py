@@ -235,8 +235,7 @@ def add_source_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--source-directory', '-s',
         type=str,
-        required=True,
-        help='Directory containing Oracle SQL dump files'
+        help='Directory containing Oracle SQL dump files (can be specified in config file)'
     )
     parser.add_argument(
         '--sample-lines',
