@@ -1,0 +1,35 @@
+# Development Environment Configuration
+# Optimized for local development and testing
+
+# Basic configuration
+source_directory: "./sample_data"
+ddl_directory: "./dev_ddl"
+sample_lines: 50  # Smaller samples for faster processing
+target_encoding: "utf-8"
+
+# DeepSeek API configuration
+deepseek:
+  api_key: "your-dev-api-key-here"
+  base_url: "https://api.deepseek.com"
+  timeout: 15  # Shorter timeout for dev
+  max_retries: 2
+
+# PostgreSQL configuration
+postgresql:
+  host: "localhost"
+  port: 5432
+  database: "dev_migration_test"
+  schema: "public"
+  username: "developer"
+  password: "devpass"
+
+# Performance configuration - optimized for development
+performance:
+  max_workers: 1  # Single worker to avoid overwhelming dev machine
+  batch_size: 100  # Small batches for quick feedback
+  memory_limit_mb: 256
+
+# Logging configuration - verbose for development
+logging:
+  level: "DEBUG"  # Detailed logging for development
+  file: "./dev_migration.log"

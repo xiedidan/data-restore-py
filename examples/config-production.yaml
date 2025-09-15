@@ -1,0 +1,35 @@
+# Production Environment Configuration
+# Optimized for large-scale production migration
+
+# Basic configuration
+source_directory: "/data/oracle_exports"
+ddl_directory: "/data/migration/ddl"
+sample_lines: 1000  # More samples for better analysis
+target_encoding: "utf-8"
+
+# DeepSeek API configuration
+deepseek:
+  api_key: "${DEEPSEEK_API_KEY}"  # Use environment variable for security
+  base_url: "https://api.deepseek.com"
+  timeout: 120  # Longer timeout for complex tables
+  max_retries: 10  # More retries for reliability
+
+# PostgreSQL configuration
+postgresql:
+  host: "prod-postgres-cluster.internal"
+  port: 5432
+  database: "production_database"
+  schema: "migrated_oracle"
+  username: "${POSTGRES_USER}"  # Use environment variable
+  password: "${POSTGRES_PASSWORD}"  # Use environment variable
+
+# Performance configuration - optimized for production
+performance:
+  max_workers: 16  # High parallelism for production servers
+  batch_size: 5000  # Large batches for efficiency
+  memory_limit_mb: 8192  # High memory limit for large files
+
+# Logging configuration - production level
+logging:
+  level: "INFO"  # Standard logging for production
+  file: "/var/log/oracle_migration.log"

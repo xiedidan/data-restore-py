@@ -1,0 +1,35 @@
+# Testing Environment Configuration
+# Optimized for automated testing and CI/CD
+
+# Basic configuration
+source_directory: "./test_data"
+ddl_directory: "./test_ddl"
+sample_lines: 20  # Minimal samples for fast testing
+target_encoding: "utf-8"
+
+# DeepSeek API configuration
+deepseek:
+  api_key: "test-api-key"  # Mock API key for testing
+  base_url: "https://api.deepseek.com"
+  timeout: 10  # Short timeout for tests
+  max_retries: 1  # Minimal retries for fast failure
+
+# PostgreSQL configuration
+postgresql:
+  host: "localhost"
+  port: 5432
+  database: "test_migration"
+  schema: "test_schema"
+  username: "test_user"
+  password: "test_password"
+
+# Performance configuration - optimized for testing
+performance:
+  max_workers: 1  # Single worker for predictable testing
+  batch_size: 10  # Very small batches for testing
+  memory_limit_mb: 128  # Minimal memory for testing
+
+# Logging configuration - detailed for testing
+logging:
+  level: "DEBUG"  # Detailed logging for test debugging
+  file: "./test_migration.log"
