@@ -125,7 +125,7 @@ Report saved to: reports/analysis_report_20241215_143022.csv
 # Using configuration file
 python create_tables.py --config config.yaml
 
-# Using command line arguments
+# Using command line arguments (overrides config file)
 python create_tables.py \
   --pg-database mydb \
   --pg-username postgres \

@@ -353,8 +353,7 @@ def add_postgresql_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--pg-database',
         type=str,
-        required=True,
-        help='PostgreSQL database name'
+        help='PostgreSQL database name (can be specified in config file)'
     )
     parser.add_argument(
         '--pg-schema',
