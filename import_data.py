@@ -70,17 +70,17 @@ class DataImporter:
         """Initialize database manager."""
         try:
             connection_info = ConnectionInfo(
-                host=self.config.db_host,
-                port=self.config.db_port,
-                database=self.config.target_db,
-                username=self.config.db_user,
-                password=self.config.db_password,
-                schema=self.config.target_schema
+                host=self.config.postgresql.host,
+                port=self.config.postgresql.port,
+                database=self.config.postgresql.database,
+                username=self.config.postgresql.username,
+                password=self.config.postgresql.password,
+                schema=self.config.postgresql.schema
             )
             
             self.db_manager = DatabaseManager(
                 connection_info=connection_info,
-                pool_size=self.config.max_workers,
+                pool_size=self.config.performance.max_workers,
                 logger=self.logger
             )
             
@@ -97,25 +97,25 @@ class DataImporter:
     def _init_sql_rewriter(self):
         """Initialize SQL rewriter."""
         self.sql_rewriter = SQLRewriter(
-            source_db=self.config.source_db,
-            target_db=self.config.target_db,
-            target_schema=self.config.target_schema,
+            source_db="oracle",  # Default source database type
+            target_db="postgresql",  # Default target database type
+            target_schema=self.config.postgresql.schema,
             logger=self.logger
         )
         
-        self.logger.info(f"SQL rewriter initialized: {self.config.source_db} -> {self.config.target_db}")
+        self.logger.info(f"SQL rewriter initialized: oracle -> postgresql")
     
     def _init_parallel_importer(self):
         """Initialize parallel importer."""
         self.parallel_importer = ParallelImporter(
             db_manager=self.db_manager,
             sql_rewriter=self.sql_rewriter,
-            max_workers=self.config.max_workers,
-            batch_size=self.config.batch_size,
+            max_workers=self.config.performance.max_workers,
+            batch_size=self.config.performance.batch_size,
             logger=self.logger
         )
         
-        self.logger.info(f"Parallel importer initialized with {self.config.max_workers} workers")
+        self.logger.info(f"Parallel importer initialized with {self.config.performance.max_workers} workers")
     
     def load_encoding_report(self) -> Dict[str, str]:
         """
@@ -125,7 +125,7 @@ class DataImporter:
             Dictionary mapping file paths to their encodings
         """
         encoding_map = {}
-        report_file = os.path.join(self.config.output_dir, 'encoding_analysis.csv')
+        report_file = os.path.join("./reports", 'encoding_analysis.csv')
         
         if not os.path.exists(report_file):
             self.logger.warning(f"Encoding report not found: {report_file}")
@@ -157,7 +157,7 @@ class DataImporter:
             List of SQL file paths
         """
         sql_files = []
-        source_dir = Path(self.config.source_dir)
+        source_dir = Path(self.config.source_directory)
         
         if not source_dir.exists():
             raise FileNotFoundError(f"Source directory not found: {source_dir}")
@@ -185,7 +185,7 @@ class DataImporter:
         
         for sql_file in sql_files:
             # Get encoding from report or use default
-            encoding = encoding_map.get(sql_file, self.config.default_encoding)
+            encoding = encoding_map.get(sql_file, "utf-8")
             
             # Extract table name from file name (assuming format like table_name.sql)
             file_name = os.path.basename(sql_file)
@@ -345,11 +345,11 @@ class DataImporter:
                     })
         
         # Generate report
-        report_file = os.path.join(self.config.output_dir, 'import_report.json')
+        report_file = os.path.join("./reports", 'import_report.json')
         self.report_generator.generate_json_report(report_data, report_file)
         
         # Also generate CSV summary
-        csv_file = os.path.join(self.config.output_dir, 'import_summary.csv')
+        csv_file = os.path.join("./reports", 'import_summary.csv')
         self._generate_csv_summary(results, csv_file)
         
         self.logger.info(f"Import report generated: {report_file}")
@@ -575,57 +575,49 @@ def main():
     try:
         # Load configuration
         if args.config:
-            config = Config.from_yaml(args.config)
+            config = Config.from_file(args.config)
         else:
             config = Config()
         
         # Override config with command line arguments
         if args.source_dir:
-            config.source_dir = args.source_dir
+            config.source_directory = args.source_dir
         if args.target_db:
-            config.target_db = args.target_db
+            config.postgresql.database = args.target_db
         if args.target_schema:
-            config.target_schema = args.target_schema
-        if args.source_db:
-            config.source_db = args.source_db
+            config.postgresql.schema = args.target_schema
         if args.db_host:
-            config.db_host = args.db_host
+            config.postgresql.host = args.db_host
         if args.db_port:
-            config.db_port = args.db_port
+            config.postgresql.port = args.db_port
         if args.db_user:
-            config.db_user = args.db_user
+            config.postgresql.username = args.db_user
         if args.db_password:
-            config.db_password = args.db_password
+            config.postgresql.password = args.db_password
         if args.max_workers:
-            config.max_workers = args.max_workers
+            config.performance.max_workers = args.max_workers
         if args.batch_size:
-            config.batch_size = args.batch_size
-        if args.default_encoding:
-            config.default_encoding = args.default_encoding
+            config.performance.batch_size = args.batch_size
         if args.target_encoding:
             config.target_encoding = args.target_encoding
-        if args.output_dir:
-            config.output_dir = args.output_dir
         if args.log_level:
-            config.log_level = args.log_level
-        if args.verbose:
-            config.verbose = True
+            config.logging.level = args.log_level
         
         # Validate required parameters
-        if not config.source_dir:
+        if not config.source_directory:
             print("Error: Source directory is required (--source-dir or config file)")
             sys.exit(1)
         
-        if not config.target_db:
+        if not config.postgresql.database:
             print("Error: Target database is required (--target-db or config file)")
             sys.exit(1)
         
-        if not config.db_password:
+        if not config.postgresql.password:
             print("Error: Database password is required (--db-password or config file)")
             sys.exit(1)
         
         # Create output directory
-        os.makedirs(config.output_dir, exist_ok=True)
+        os.makedirs("./reports", exist_ok=True)
         
         # Initialize and run data importer
         importer = DataImporter(config)
