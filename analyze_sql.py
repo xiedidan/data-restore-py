@@ -375,9 +375,9 @@ Examples:
   python analyze_sql.py --config config.yaml
   python analyze_sql.py --source-directory /path/to/dumps
   python analyze_sql.py -s /path/to/dumps --config custom_config.yaml
-  python analyze_sql.py -s /path/to/dumps --deepseek-model deepseek-reasoner
+  python analyze_sql.py -s /path/to/dumps --deepseek-model deepseek-reasoner --deepseek-timeout 120
   python analyze_sql.py -s /path/to/dumps --simple-progress --log-level INFO
-  python analyze_sql.py -s /path/to/dumps --sample-lines 50 --log-level DEBUG
+  python analyze_sql.py -s /path/to/dumps --sample-lines 100 --deepseek-timeout 180 --log-level DEBUG
         """
     )
     
@@ -409,6 +409,11 @@ def main():
         # Merge with file configuration if exists
         if os.path.exists(args.config):
             config = config.merge_with_file(args.config)
+        elif args.config != 'config.yaml':  # Only warn if user explicitly specified a config file
+            print(f"Warning: Configuration file '{args.config}' not found. Using default configuration.")
+        elif not os.path.exists('config.yaml'):
+            print("Info: No config.yaml found. Using default configuration.")
+            print("Tip: Copy config.yaml.template to config.yaml and customize it for your environment.")
         
         # Override DDL directory if specified
         if args.ddl_directory:

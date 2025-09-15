@@ -150,6 +150,10 @@ class Config:
             config.deepseek.base_url = args.deepseek_base_url
         if hasattr(args, 'deepseek_model') and args.deepseek_model:
             config.deepseek.model = args.deepseek_model
+        if hasattr(args, 'deepseek_timeout') and args.deepseek_timeout:
+            config.deepseek.timeout = args.deepseek_timeout
+        if hasattr(args, 'deepseek_max_retries') and args.deepseek_max_retries:
+            config.deepseek.max_retries = args.deepseek_max_retries
         
         # Performance arguments
         if hasattr(args, 'max_workers') and args.max_workers:
@@ -275,6 +279,16 @@ def add_deepseek_arguments(parser: argparse.ArgumentParser) -> None:
         type=str,
         choices=['deepseek-reasoner', 'deepseek-chat', 'deepseek-coder'],
         help='DeepSeek model to use (default: deepseek-reasoner)'
+    )
+    parser.add_argument(
+        '--deepseek-timeout',
+        type=int,
+        help='DeepSeek API timeout in seconds'
+    )
+    parser.add_argument(
+        '--deepseek-max-retries',
+        type=int,
+        help='Maximum number of DeepSeek API retry attempts'
     )
 
 
