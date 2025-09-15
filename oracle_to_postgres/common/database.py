@@ -246,18 +246,20 @@ class DatabaseManager:
             True if table exists, False otherwise
         """
         schema = schema or self.connection_info.schema
+        self.logger.debug(f"Checking table existence: table={table_name}, schema={schema}")
         
         check_sql = """
         SELECT EXISTS (
             SELECT FROM information_schema.tables 
-            WHERE table_schema = %s AND table_name = %s
+            WHERE table_schema = %s AND (table_name = %s OR table_name = %s)
         );
         """
         
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    cursor.execute(check_sql, (schema, table_name))
+                    # Check both original case and lowercase (PostgreSQL convention)
+                    cursor.execute(check_sql, (schema, table_name, table_name.lower()))
                     result = cursor.fetchone()
                     return bool(self._extract_value(result, 0)) if result else False
         except Exception as e:

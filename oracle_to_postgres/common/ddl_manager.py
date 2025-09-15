@@ -302,6 +302,10 @@ class DDLManager:
             table_exists = self.db_manager.table_exists(ddl_file.table_name)
             self.logger.debug(f"Table {ddl_file.table_name} exists: {table_exists}")
             
+            # Debug: Show where the table actually exists
+            if not table_exists:
+                self._debug_table_location(ddl_file.table_name)
+            
             if table_exists and drop_existing:
                 # Drop existing table
                 self.logger.info(f"Dropping existing table {ddl_file.table_name}")
@@ -336,6 +340,31 @@ class DDLManager:
         
         result.execution_time = time.time() - start_time
         return result
+    
+    def _debug_table_location(self, table_name: str) -> None:
+        """Debug method to show where a table actually exists."""
+        try:
+            debug_sql = """
+            SELECT table_schema, table_name 
+            FROM information_schema.tables 
+            WHERE table_name = %s
+            """
+            
+            with self.db_manager.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(debug_sql, (table_name,))
+                    results = cursor.fetchall()
+                    
+                    if results:
+                        self.logger.debug(f"Table {table_name} found in schemas:")
+                        for row in results:
+                            schema = self.db_manager._extract_value(row, 0)
+                            name = self.db_manager._extract_value(row, 1)
+                            self.logger.debug(f"  - {schema}.{name}")
+                    else:
+                        self.logger.debug(f"Table {table_name} not found in any schema")
+        except Exception as e:
+            self.logger.debug(f"Error checking table location: {e}")
     
     def get_execution_summary(self, results: List[DDLExecutionResult]) -> Dict[str, any]:
         """
