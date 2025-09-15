@@ -246,22 +246,37 @@ class DatabaseManager:
             True if table exists, False otherwise
         """
         schema = schema or self.connection_info.schema or 'public'
-        self.logger.debug(f"Checking table existence: table={table_name}, schema={schema}")
+        self.logger.debug(f"Checking table existence: table='{table_name}', schema='{schema}'")
         
         check_sql = """
         SELECT EXISTS (
             SELECT FROM information_schema.tables 
-            WHERE table_schema = %s AND (table_name = %s OR table_name = %s)
+            WHERE table_schema = %s AND table_name = %s
         );
         """
         
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
-                    # Check both original case and lowercase (PostgreSQL convention)
-                    cursor.execute(check_sql, (schema, table_name, table_name.lower()))
+                    # First try exact match
+                    cursor.execute(check_sql, (schema, table_name))
                     result = cursor.fetchone()
-                    return bool(self._extract_value(result, 0)) if result else False
+                    exists = bool(self._extract_value(result, 0)) if result else False
+                    
+                    # If not found and case differs, try other case
+                    if not exists and table_name != table_name.lower():
+                        cursor.execute(check_sql, (schema, table_name.lower()))
+                        result = cursor.fetchone()
+                        exists = bool(self._extract_value(result, 0)) if result else False
+                    
+                    # If still not found and case differs, try uppercase
+                    if not exists and table_name != table_name.upper():
+                        cursor.execute(check_sql, (schema, table_name.upper()))
+                        result = cursor.fetchone()
+                        exists = bool(self._extract_value(result, 0)) if result else False
+                    
+                    self.logger.debug(f"Table existence check result: {exists}")
+                    return exists
         except Exception as e:
             self.logger.error(f"Error checking table existence: {str(e)}")
             return False

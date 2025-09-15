@@ -347,7 +347,7 @@ class DDLManager:
             debug_sql = """
             SELECT table_schema, table_name 
             FROM information_schema.tables 
-            WHERE table_name = %s
+            WHERE table_name ILIKE %s
             """
             
             with self.db_manager.get_connection() as conn:
