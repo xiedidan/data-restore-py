@@ -588,15 +588,13 @@ Examples:
     parser.add_argument(
         '--max-workers',
         type=int,
-        default=4,
-        help='Maximum number of parallel workers (default: 4)'
+        help='Maximum number of parallel workers (default: from config file)'
     )
     
     parser.add_argument(
         '--batch-size',
         type=int,
-        default=1000,
-        help='Number of records to process in each batch (default: 1000)'
+        help='Number of records to process in each batch (default: from config file)'
     )
     
     # Encoding settings

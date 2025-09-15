@@ -189,9 +189,14 @@ class SingleFileImporter:
             batch = []
             for statement in statements:
                 if statement.strip():
-                    # Rewrite the statement
-                    rewritten = self.sql_rewriter.rewrite_insert_statement(statement)
-                    batch.append(rewritten)
+                    # Filter out Oracle-specific commands
+                    if self._is_valid_sql_statement(statement):
+                        # Rewrite the statement
+                        rewritten = self.sql_rewriter.rewrite_insert_statement(statement)
+                        batch.append(rewritten)
+                    else:
+                        if self.logger:
+                            self.logger.debug(f"Skipping Oracle-specific command: {statement[:50]}...")
                     
                     # Process batch when it reaches batch_size
                     if len(batch) >= self.batch_size:
@@ -274,6 +279,68 @@ class SingleFileImporter:
             statements.append(current_statement.strip())
         
         return statements
+    
+    def _is_valid_sql_statement(self, statement: str) -> bool:
+        """Check if a statement is a valid SQL statement (not Oracle-specific command)."""
+        statement_lower = statement.lower().strip()
+        
+        # Skip empty statements
+        if not statement_lower:
+            return False
+        
+        # Skip Oracle-specific commands
+        oracle_commands = [
+            'prompt ',
+            'set feedback',
+            'set define',
+            'set echo',
+            'set pagesize',
+            'set linesize',
+            'set timing',
+            'set serveroutput',
+            'set verify',
+            'set heading',
+            'spool ',
+            'exit',
+            'quit',
+            'connect ',
+            'disconnect',
+            'commit;',
+            'rollback;',
+            'alter session',
+            'whenever sqlerror',
+            'whenever oserror'
+        ]
+        
+        for oracle_cmd in oracle_commands:
+            if statement_lower.startswith(oracle_cmd):
+                return False
+        
+        # Skip comments (lines starting with --, /*, or REM)
+        if (statement_lower.startswith('--') or 
+            statement_lower.startswith('/*') or 
+            statement_lower.startswith('rem ')):
+            return False
+        
+        # Only allow standard SQL statements
+        valid_sql_starts = [
+            'select',
+            'insert',
+            'update',
+            'delete',
+            'create',
+            'drop',
+            'alter',
+            'truncate',
+            'grant',
+            'revoke'
+        ]
+        
+        for valid_start in valid_sql_starts:
+            if statement_lower.startswith(valid_start):
+                return True
+        
+        return False
     
     def _execute_batch(self, statements: List[str]) -> Dict[str, Any]:
         """
