@@ -123,11 +123,11 @@ class DeepSeekClient:
         max_samples = min(len(sample_inserts), self.max_samples)
         limited_samples = sample_inserts[:max_samples]
         
-        prompt = f"""You are a database migration expert. I need you to generate a PostgreSQL CREATE TABLE statement based on the following Oracle INSERT statements.
+        prompt = f"""Task: Generate PostgreSQL CREATE TABLE DDL
 
 Table Name: {table_name}
 
-Sample INSERT statements:
+Oracle INSERT Statements:
 """
         
         for i, insert_stmt in enumerate(limited_samples, 1):
@@ -135,28 +135,30 @@ Sample INSERT statements:
             clean_stmt = insert_stmt.strip()
             if not clean_stmt.endswith(';'):
                 clean_stmt += ';'
-            prompt += f"{i}. {clean_stmt}\n"
+            prompt += f"{clean_stmt}\n"
         
-        prompt += """
-Please analyze these INSERT statements and generate a PostgreSQL CREATE TABLE statement that:
-
-1. Uses appropriate PostgreSQL data types (INTEGER, VARCHAR, TEXT, DECIMAL, TIMESTAMP, BOOLEAN, etc.)
-2. Infers column names from the INSERT statements
-3. Sets reasonable column lengths for VARCHAR fields based on the sample data
-4. Includes NOT NULL constraints where appropriate based on the data patterns
-5. Uses proper PostgreSQL syntax and naming conventions
-6. Adds a primary key constraint on the 'id' column if it exists
-7. Includes comments explaining any assumptions made
+        prompt += f"""
+INSTRUCTIONS:
+Analyze the INSERT statements above and generate a PostgreSQL CREATE TABLE statement for table "{table_name}".
 
 Requirements:
-- Use double quotes for column names to preserve case sensitivity
-- Choose the most appropriate PostgreSQL data type for each column
-- For VARCHAR columns, add a reasonable length limit (add 50% buffer to max observed length)
-- For DECIMAL/NUMERIC columns, infer appropriate precision and scale
-- Add NOT NULL constraints only if you're confident based on the sample data
-- If you see date/timestamp patterns, use appropriate PostgreSQL date/time types
+1. Use PostgreSQL data types: INTEGER, BIGINT, VARCHAR(n), TEXT, DECIMAL(p,s), TIMESTAMP, DATE, BOOLEAN
+2. Infer column names and types from INSERT values
+3. Set VARCHAR lengths with 50% buffer over max observed length
+4. Use NOT NULL only when confident from sample data
+5. Add PRIMARY KEY on 'id' column if exists
+6. Use double quotes for column names
 
-Please respond with ONLY the CREATE TABLE statement, no additional explanation or markdown formatting.
+OUTPUT FORMAT:
+Return ONLY the CREATE TABLE statement. No explanations, no markdown, no reasoning text.
+Start directly with "CREATE TABLE" and end with the semicolon.
+
+Example format:
+CREATE TABLE "{table_name}" (
+    "column1" INTEGER NOT NULL,
+    "column2" VARCHAR(100),
+    PRIMARY KEY ("column1")
+);
 """
         
         return prompt
@@ -186,6 +188,11 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
             "max_tokens": 2000,  # Sufficient for DDL generation
             "stream": False
         }
+        
+        # Add special parameters for reasoner model
+        if self.model == "deepseek-reasoner":
+            request_data["temperature"] = 0.0  # Even lower temperature for reasoner
+            request_data["max_tokens"] = 4000  # More tokens for reasoning + answer
         
         # For reasoner model, use longer timeout if not already set
         actual_timeout = self.timeout
@@ -318,25 +325,44 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
             # Try different content extraction methods for different model types
             content = ""
             
-            # Method 1: Standard content field
-            if 'content' in message:
+            # Method 1: Standard content field (for chat models)
+            if 'content' in message and message.get('content'):
                 content = message.get('content', '').strip()
+                self.logger.debug("Extracted content from 'content' field")
             
-            # Method 2: For reasoner model, check if there's reasoning_content
-            elif 'reasoning_content' in message:
-                content = message.get('reasoning_content', '').strip()
+            # Method 2: For reasoner model, try reasoning_content first, then look for final answer
+            elif self.model == "deepseek-reasoner":
+                # Check if there's a reasoning_content field
+                if 'reasoning_content' in message:
+                    reasoning_text = message.get('reasoning_content', '')
+                    self.logger.debug(f"Found reasoning_content: {reasoning_text[:200]}...")
+                    
+                    # Try to extract CREATE TABLE from reasoning content
+                    content = self._extract_ddl_from_reasoning(reasoning_text)
+                    if content:
+                        self.logger.debug("Extracted DDL from reasoning_content")
+                
+                # If no content found in reasoning, check other fields
+                if not content:
+                    for field in ['content', 'text', 'answer', 'result']:
+                        if field in message and message.get(field):
+                            content = message.get(field, '').strip()
+                            self.logger.debug(f"Extracted content from '{field}' field")
+                            break
             
             # Method 3: Check if content is in a different structure
             elif isinstance(message.get('content'), dict):
                 content_dict = message.get('content', {})
                 content = content_dict.get('text', '').strip()
+                self.logger.debug("Extracted content from nested content.text")
             
             # Method 4: Check for text field directly
             elif 'text' in message:
                 content = message.get('text', '').strip()
+                self.logger.debug("Extracted content from 'text' field")
             
             if not content:
-                self.logger.error(f"Empty content in message. Message: {message}")
+                self.logger.error(f"Empty content in message. Message keys: {list(message.keys())}")
                 # Try to extract any text-like content from the message
                 for key, value in message.items():
                     if isinstance(value, str) and len(value.strip()) > 10:
@@ -414,6 +440,57 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
                 return False
         
         return True
+    
+    def _extract_ddl_from_reasoning(self, reasoning_text: str) -> str:
+        """
+        Extract CREATE TABLE statement from reasoning content.
+        
+        Args:
+            reasoning_text: The reasoning content from deepseek-reasoner
+            
+        Returns:
+            Extracted DDL statement or empty string if not found
+        """
+        if not reasoning_text:
+            return ""
+        
+        # Look for CREATE TABLE statements in the reasoning text
+        import re
+        
+        # Pattern to match CREATE TABLE statements
+        patterns = [
+            r'CREATE TABLE[^;]+;',
+            r'create table[^;]+;',
+            r'CREATE\s+TABLE\s+[^;]+;'
+        ]
+        
+        for pattern in patterns:
+            matches = re.findall(pattern, reasoning_text, re.IGNORECASE | re.DOTALL)
+            if matches:
+                # Return the first (and hopefully only) CREATE TABLE statement
+                ddl = matches[0].strip()
+                self.logger.debug(f"Extracted DDL from reasoning: {ddl[:100]}...")
+                return ddl
+        
+        # If no complete CREATE TABLE found, look for partial DDL that might be at the end
+        lines = reasoning_text.split('\n')
+        ddl_lines = []
+        in_create_table = False
+        
+        for line in lines:
+            line = line.strip()
+            if re.match(r'CREATE\s+TABLE', line, re.IGNORECASE):
+                in_create_table = True
+                ddl_lines = [line]
+            elif in_create_table:
+                ddl_lines.append(line)
+                if line.endswith(';'):
+                    # End of CREATE TABLE statement
+                    ddl = '\n'.join(ddl_lines)
+                    self.logger.debug(f"Extracted multi-line DDL from reasoning: {ddl[:100]}...")
+                    return ddl
+        
+        return ""
     
     def test_connection(self) -> bool:
         """
