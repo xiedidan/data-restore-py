@@ -124,19 +124,19 @@ class Config:
             config.source_directory = args.source_directory
         if hasattr(args, 'ddl_directory') and args.ddl_directory:
             config.ddl_directory = args.ddl_directory
-        if hasattr(args, 'sample_lines') and args.sample_lines:
+        if hasattr(args, 'sample_lines') and args.sample_lines is not None:
             config.sample_lines = args.sample_lines
         if hasattr(args, 'target_encoding') and args.target_encoding:
             config.target_encoding = args.target_encoding
         
         # PostgreSQL arguments
-        if hasattr(args, 'pg_host') and args.pg_host:
+        if hasattr(args, 'pg_host') and args.pg_host is not None:
             config.postgresql.host = args.pg_host
-        if hasattr(args, 'pg_port') and args.pg_port:
+        if hasattr(args, 'pg_port') and args.pg_port is not None:
             config.postgresql.port = args.pg_port
-        if hasattr(args, 'pg_database') and args.pg_database:
+        if hasattr(args, 'pg_database') and args.pg_database is not None:
             config.postgresql.database = args.pg_database
-        if hasattr(args, 'pg_schema') and args.pg_schema:
+        if hasattr(args, 'pg_schema') and args.pg_schema is not None:
             config.postgresql.schema = args.pg_schema
         if hasattr(args, 'pg_username') and args.pg_username:
             config.postgresql.username = args.pg_username
@@ -162,9 +162,9 @@ class Config:
             config.performance.batch_size = args.batch_size
         
         # Logging arguments
-        if hasattr(args, 'log_level') and args.log_level:
+        if hasattr(args, 'log_level') and args.log_level is not None:
             config.logging.level = args.log_level
-        if hasattr(args, 'log_file') and args.log_file:
+        if hasattr(args, 'log_file') and args.log_file is not None:
             config.logging.file = args.log_file
         if hasattr(args, 'simple_progress') and args.simple_progress:
             config.logging.show_progress_steps = False
@@ -177,16 +177,56 @@ class Config:
             file_config = self.from_file(config_path)
             # Command line arguments take precedence over file configuration
             # Only update empty/default values
+            
+            # Basic configuration
             if not self.source_directory:
                 self.source_directory = file_config.source_directory
+            if self.sample_lines == 100:  # Default value, use file config
+                self.sample_lines = file_config.sample_lines
+            if self.target_encoding == "utf-8":  # Default value, use file config
+                self.target_encoding = file_config.target_encoding
+            
+            # DeepSeek configuration
             if not self.deepseek.api_key:
                 self.deepseek.api_key = file_config.deepseek.api_key
+            if self.deepseek.base_url == "https://api.deepseek.com":  # Default value
+                self.deepseek.base_url = file_config.deepseek.base_url
+            if self.deepseek.model == "deepseek-reasoner":  # Default value
+                self.deepseek.model = file_config.deepseek.model
+            if self.deepseek.timeout == 30:  # Default value, use file config
+                self.deepseek.timeout = file_config.deepseek.timeout
+            if self.deepseek.max_retries == 3:  # Default value
+                self.deepseek.max_retries = file_config.deepseek.max_retries
+            
+            # PostgreSQL configuration
             if not self.postgresql.database:
                 self.postgresql.database = file_config.postgresql.database
             if not self.postgresql.username:
                 self.postgresql.username = file_config.postgresql.username
             if not self.postgresql.password:
                 self.postgresql.password = file_config.postgresql.password
+            if self.postgresql.host == "localhost":  # Default value
+                self.postgresql.host = file_config.postgresql.host
+            if self.postgresql.port == 5432:  # Default value
+                self.postgresql.port = file_config.postgresql.port
+            if self.postgresql.schema == "public":  # Default value
+                self.postgresql.schema = file_config.postgresql.schema
+            
+            # Performance configuration
+            if self.performance.max_workers == 4:  # Default value
+                self.performance.max_workers = file_config.performance.max_workers
+            if self.performance.batch_size == 1000:  # Default value
+                self.performance.batch_size = file_config.performance.batch_size
+            if self.performance.memory_limit_mb == 1024:  # Default value
+                self.performance.memory_limit_mb = file_config.performance.memory_limit_mb
+            
+            # Logging configuration
+            if self.logging.level == "INFO":  # Default value
+                self.logging.level = file_config.logging.level
+            if self.logging.file == "./migration.log":  # Default value
+                self.logging.file = file_config.logging.file
+            if self.logging.show_progress_steps == True:  # Default value
+                self.logging.show_progress_steps = file_config.logging.show_progress_steps
         
         return self
     
@@ -232,8 +272,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--log-level',
         choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
-        default='INFO',
-        help='Logging level (default: INFO)'
+        help='Logging level (default: from config file or INFO)'
     )
     parser.add_argument(
         '--log-file',
@@ -257,8 +296,7 @@ def add_source_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--sample-lines',
         type=int,
-        default=100,
-        help='Number of lines to sample from each file (default: 100)'
+        help='Number of lines to sample from each file (default: from config file or 100)'
     )
 
 
@@ -297,14 +335,12 @@ def add_postgresql_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--pg-host',
         type=str,
-        default='localhost',
-        help='PostgreSQL host (default: localhost)'
+        help='PostgreSQL host (default: from config file or localhost)'
     )
     parser.add_argument(
         '--pg-port',
         type=int,
-        default=5432,
-        help='PostgreSQL port (default: 5432)'
+        help='PostgreSQL port (default: from config file or 5432)'
     )
     parser.add_argument(
         '--pg-database',
@@ -315,8 +351,7 @@ def add_postgresql_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         '--pg-schema',
         type=str,
-        default='public',
-        help='PostgreSQL schema (default: public)'
+        help='PostgreSQL schema (default: from config file or public)'
     )
     parser.add_argument(
         '--pg-username',

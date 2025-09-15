@@ -67,7 +67,7 @@ class SQLAnalyzer:
             model=config.deepseek.model,
             timeout=config.deepseek.timeout,
             max_retries=config.deepseek.max_retries,
-            max_samples=min(config.sample_lines // 10, 50),  # Use reasonable portion of sample_lines, max 50
+            max_samples=min(config.sample_lines // 5, 20),  # Use 1/5 of sample_lines, max 20 for API efficiency
             logger=self.logger
         )
         self.report_generator = ReportGenerator()
