@@ -26,7 +26,7 @@ class DeepSeekClient:
     
     def __init__(self, api_key: str, base_url: str = "https://api.deepseek.com", 
                  model: str = "deepseek-reasoner", timeout: int = 30, max_retries: int = 3, 
-                 max_samples: int = 10, logger: Optional[Logger] = None):
+                 max_samples: int = 10, auto_fallback: bool = True, logger: Optional[Logger] = None):
         """
         Initialize DeepSeek API client.
         
@@ -45,6 +45,7 @@ class DeepSeekClient:
         self.timeout = timeout
         self.max_retries = max_retries
         self.max_samples = max_samples
+        self.auto_fallback = auto_fallback
         self.logger = logger or Logger()
         
         # API endpoints
@@ -188,6 +189,8 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
         
         # For reasoner model, use longer timeout if not already set
         actual_timeout = self.timeout
+        original_model = self.model
+        
         if self.model == "deepseek-reasoner" and self.timeout < 60:
             actual_timeout = max(self.timeout, 60)
             self.logger.debug(f"Using extended timeout for reasoner model: {actual_timeout}s")
@@ -248,6 +251,29 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
             except Exception as e:
                 last_exception = e
                 self.logger.warning(f"Unexpected error on attempt {attempt + 1}: {str(e)}")
+                
+                # If using reasoner model and getting parsing errors, try fallback to chat model
+                if (self.auto_fallback and 
+                    self.model == "deepseek-reasoner" and 
+                    "Empty content" in str(e) and 
+                    attempt == self.max_retries - 1):
+                    self.logger.warning("Reasoner model failed, trying fallback to deepseek-chat")
+                    request_data["model"] = "deepseek-chat"
+                    # Give it one more try with chat model
+                    try:
+                        response = requests.post(
+                            self.chat_endpoint,
+                            headers=self.headers,
+                            json=request_data,
+                            timeout=actual_timeout
+                        )
+                        
+                        if response.status_code == 200:
+                            response_data = response.json()
+                            if 'error' not in response_data:
+                                return response_data
+                    except Exception as fallback_e:
+                        self.logger.warning(f"Fallback to chat model also failed: {fallback_e}")
             
             # Wait before retry (except on last attempt)
             if attempt < self.max_retries - 1:
@@ -271,16 +297,55 @@ Please respond with ONLY the CREATE TABLE statement, no additional explanation o
             Exception: If response format is invalid
         """
         try:
+            # Log the raw response for debugging
+            self.logger.debug(f"Raw API response keys: {list(response_data.keys())}")
+            
             # Extract the generated content
             choices = response_data.get('choices', [])
             if not choices:
+                self.logger.error(f"No choices in API response. Response: {response_data}")
                 raise Exception("No choices in API response")
             
+            self.logger.debug(f"First choice keys: {list(choices[0].keys())}")
+            
             message = choices[0].get('message', {})
-            content = message.get('content', '').strip()
+            if not message:
+                self.logger.error(f"No message in choice. Choice: {choices[0]}")
+                raise Exception("No message in API response choice")
+            
+            self.logger.debug(f"Message keys: {list(message.keys())}")
+            
+            # Try different content extraction methods for different model types
+            content = ""
+            
+            # Method 1: Standard content field
+            if 'content' in message:
+                content = message.get('content', '').strip()
+            
+            # Method 2: For reasoner model, check if there's reasoning_content
+            elif 'reasoning_content' in message:
+                content = message.get('reasoning_content', '').strip()
+            
+            # Method 3: Check if content is in a different structure
+            elif isinstance(message.get('content'), dict):
+                content_dict = message.get('content', {})
+                content = content_dict.get('text', '').strip()
+            
+            # Method 4: Check for text field directly
+            elif 'text' in message:
+                content = message.get('text', '').strip()
             
             if not content:
-                raise Exception("Empty content in API response")
+                self.logger.error(f"Empty content in message. Message: {message}")
+                # Try to extract any text-like content from the message
+                for key, value in message.items():
+                    if isinstance(value, str) and len(value.strip()) > 10:
+                        self.logger.warning(f"Found potential content in '{key}' field: {value[:100]}...")
+                        content = value.strip()
+                        break
+                
+                if not content:
+                    raise Exception("Empty content in API response")
             
             # Clean up the content
             ddl_content = self._clean_ddl_content(content)

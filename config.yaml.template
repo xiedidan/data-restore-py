@@ -27,6 +27,11 @@ ddl_directory: "./ddl"
 # Recommended: 100-500 for most cases
 sample_lines: 100
 
+# Maximum number of INSERT statements to send to DeepSeek for DDL generation (optional)
+# Higher values provide better table structure analysis but cost more API tokens
+# Recommended: 10-30 for most cases, 50+ for complex tables
+max_insert_samples: 20
+
 # Target encoding for PostgreSQL (optional)
 # Most PostgreSQL installations use UTF-8
 target_encoding: "utf-8"
@@ -54,6 +59,10 @@ deepseek:
   # Maximum number of retry attempts for failed API calls (optional)
   # Helps handle temporary network issues
   max_retries: 3
+  
+  # Auto fallback to deepseek-chat if deepseek-reasoner fails (optional)
+  # Helps ensure DDL generation succeeds even if reasoner model has issues
+  auto_fallback: true
 
 # =============================================================================
 # POSTGRESQL DATABASE CONFIGURATION

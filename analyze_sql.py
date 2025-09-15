@@ -67,7 +67,8 @@ class SQLAnalyzer:
             model=config.deepseek.model,
             timeout=config.deepseek.timeout,
             max_retries=config.deepseek.max_retries,
-            max_samples=min(config.sample_lines // 5, 20),  # Use 1/5 of sample_lines, max 20 for API efficiency
+            max_samples=config.max_insert_samples,
+            auto_fallback=config.deepseek.auto_fallback,
             logger=self.logger
         )
         self.report_generator = ReportGenerator()
@@ -101,6 +102,7 @@ class SQLAnalyzer:
         
         # Display configuration info
         self.logger.debug(f"DeepSeek configuration: model={self.config.deepseek.model}, timeout={self.config.deepseek.timeout}s, max_retries={self.config.deepseek.max_retries}")
+        self.logger.debug(f"Sample configuration: sample_lines={self.config.sample_lines}, max_insert_samples={self.config.max_insert_samples}")
         
         # Test DeepSeek API connection
         if not self._test_api_connection():
@@ -247,10 +249,13 @@ class SQLAnalyzer:
             # Parse INSERT statements
             statements = self.sql_parser.parse_insert_statements(content, actual_encoding.split(':')[0])
             
-            # Extract sample statements (limit to avoid token limits)
+            # Extract sample statements (limit based on configuration)
+            max_samples = self.config.max_insert_samples
             sample_statements = []
-            for stmt in statements[:10]:  # Limit to first 10 statements
+            for stmt in statements[:max_samples]:
                 sample_statements.append(stmt.original_statement)
+            
+            self.logger.debug(f"Extracted {len(sample_statements)} sample statements from {len(statements)} total statements")
             
             return sample_statements
             

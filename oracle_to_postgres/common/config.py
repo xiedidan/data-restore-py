@@ -17,6 +17,7 @@ class DeepSeekConfig:
     model: str = "deepseek-reasoner"  # Default to reasoner model
     timeout: int = 30
     max_retries: int = 3
+    auto_fallback: bool = True  # Auto fallback to chat model if reasoner fails
 
 
 @dataclass
@@ -54,6 +55,7 @@ class Config:
     source_directory: str = ""
     ddl_directory: str = "./ddl"
     sample_lines: int = 100
+    max_insert_samples: int = 20  # Maximum INSERT statements to send to DeepSeek
     target_encoding: str = "utf-8"
     
     # Component configurations
@@ -77,6 +79,7 @@ class Config:
         config.source_directory = data.get('source_directory', config.source_directory)
         config.ddl_directory = data.get('ddl_directory', config.ddl_directory)
         config.sample_lines = data.get('sample_lines', config.sample_lines)
+        config.max_insert_samples = data.get('max_insert_samples', config.max_insert_samples)
         config.target_encoding = data.get('target_encoding', config.target_encoding)
         
         # DeepSeek configuration
@@ -87,6 +90,7 @@ class Config:
             config.deepseek.model = deepseek_data.get('model', config.deepseek.model)
             config.deepseek.timeout = deepseek_data.get('timeout', config.deepseek.timeout)
             config.deepseek.max_retries = deepseek_data.get('max_retries', config.deepseek.max_retries)
+            config.deepseek.auto_fallback = deepseek_data.get('auto_fallback', config.deepseek.auto_fallback)
         
         # PostgreSQL configuration
         if 'postgresql' in data:
@@ -183,6 +187,8 @@ class Config:
                 self.source_directory = file_config.source_directory
             if self.sample_lines == 100:  # Default value, use file config
                 self.sample_lines = file_config.sample_lines
+            if self.max_insert_samples == 20:  # Default value, use file config
+                self.max_insert_samples = file_config.max_insert_samples
             if self.target_encoding == "utf-8":  # Default value, use file config
                 self.target_encoding = file_config.target_encoding
             
@@ -197,6 +203,8 @@ class Config:
                 self.deepseek.timeout = file_config.deepseek.timeout
             if self.deepseek.max_retries == 3:  # Default value
                 self.deepseek.max_retries = file_config.deepseek.max_retries
+            if self.deepseek.auto_fallback == True:  # Default value
+                self.deepseek.auto_fallback = file_config.deepseek.auto_fallback
             
             # PostgreSQL configuration
             if not self.postgresql.database:
