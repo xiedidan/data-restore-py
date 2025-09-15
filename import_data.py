@@ -78,6 +78,7 @@ class DataImporter:
                 schema=self.config.postgresql.schema
             )
             
+            self.logger.info(f"Config max_workers: {self.config.performance.max_workers}")
             self.db_manager = DatabaseManager(
                 connection_info=connection_info,
                 pool_size=self.config.performance.max_workers,

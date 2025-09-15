@@ -56,11 +56,40 @@ class SQLRewriter:
             description="Replace source database name with target database name"
         ))
         
-        # Schema-qualified table references
+        # Schema-qualified table references - comprehensive replacement
+        # Handle INSERT INTO schema.table
         rules.append(RewriteRule(
             pattern=r'INSERT\s+INTO\s+(\w+)\.(\w+)',
             replacement=rf'INSERT INTO "{self.target_schema}"."\2"',
-            description="Add schema qualification to INSERT statements"
+            description="Replace schema in INSERT statements"
+        ))
+        
+        # Handle SELECT FROM schema.table
+        rules.append(RewriteRule(
+            pattern=r'FROM\s+(\w+)\.(\w+)',
+            replacement=rf'FROM "{self.target_schema}"."\2"',
+            description="Replace schema in FROM clauses"
+        ))
+        
+        # Handle JOIN schema.table
+        rules.append(RewriteRule(
+            pattern=r'JOIN\s+(\w+)\.(\w+)',
+            replacement=rf'JOIN "{self.target_schema}"."\2"',
+            description="Replace schema in JOIN clauses"
+        ))
+        
+        # Handle UPDATE schema.table
+        rules.append(RewriteRule(
+            pattern=r'UPDATE\s+(\w+)\.(\w+)',
+            replacement=rf'UPDATE "{self.target_schema}"."\2"',
+            description="Replace schema in UPDATE statements"
+        ))
+        
+        # Handle DELETE FROM schema.table
+        rules.append(RewriteRule(
+            pattern=r'DELETE\s+FROM\s+(\w+)\.(\w+)',
+            replacement=rf'DELETE FROM "{self.target_schema}"."\2"',
+            description="Replace schema in DELETE statements"
         ))
         
         # Oracle-specific date formats
@@ -178,16 +207,27 @@ class SQLRewriter:
     
     def _process_insert_specific(self, statement: str) -> str:
         """Process INSERT-specific transformations."""
-        # Ensure proper schema qualification
-        insert_pattern = r'INSERT\s+INTO\s+(?!")[^.\s]+(?!["])'
+        # Handle any remaining unqualified table references
+        # This catches cases where tables don't have schema prefixes
+        insert_pattern = r'INSERT\s+INTO\s+(?!")([^.\s"]+)(?!")'
         
         def add_schema(match):
-            table_ref = match.group(0)
-            # Extract table name
-            table_name = table_ref.split()[-1]  # Get the last word (table name)
+            table_name = match.group(1)
             return f'INSERT INTO "{self.target_schema}"."{table_name}"'
         
         statement = re.sub(insert_pattern, add_schema, statement, flags=re.IGNORECASE)
+        
+        # Also handle SELECT statements within INSERT (INSERT INTO ... SELECT FROM ...)
+        # Replace any remaining schema references in subqueries
+        select_from_pattern = r'SELECT\s+.*?\s+FROM\s+(\w+)\.(\w+)'
+        
+        def replace_select_schema(match):
+            full_match = match.group(0)
+            schema = match.group(1)
+            table = match.group(2)
+            return full_match.replace(f'{schema}.{table}', f'"{self.target_schema}"."{table}"')
+        
+        statement = re.sub(select_from_pattern, replace_select_schema, statement, flags=re.IGNORECASE | re.DOTALL)
         
         return statement
     

@@ -277,7 +277,7 @@ class SingleFileImporter:
     
     def _execute_batch(self, statements: List[str]) -> Dict[str, Any]:
         """
-        Execute a batch of SQL statements.
+        Execute a batch of SQL statements with proper transaction handling.
         
         Args:
             statements: List of SQL statements to execute
@@ -289,30 +289,27 @@ class SingleFileImporter:
         failed = 0
         warnings = []
         
-        try:
-            with self.db_manager.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    for statement in statements:
-                        try:
-                            cursor.execute(statement)
-                            processed += 1
-                        except Exception as e:
-                            failed += 1
-                            warning = f"Failed to execute statement: {str(e)[:100]}..."
-                            warnings.append(warning)
-                            if self.logger:
-                                self.logger.warning(warning)
-                    
-                    # Commit the batch
-                    conn.commit()
-                    
-        except Exception as e:
-            # If batch fails completely, mark all as failed
-            failed = len(statements)
-            processed = 0
-            warnings.append(f"Batch execution failed: {str(e)}")
-            if self.logger:
-                self.logger.error(f"Batch execution failed: {str(e)}")
+        # Execute each statement in its own transaction to avoid abort issues
+        for statement in statements:
+            try:
+                with self.db_manager.get_connection() as conn:
+                    with conn.cursor() as cursor:
+                        cursor.execute(statement)
+                        conn.commit()
+                        processed += 1
+                        
+            except Exception as e:
+                failed += 1
+                warning = f"Failed to execute statement: {str(e)[:100]}..."
+                warnings.append(warning)
+                if self.logger:
+                    self.logger.warning(warning)
+                
+                # Try to rollback the failed transaction
+                try:
+                    conn.rollback()
+                except:
+                    pass  # Connection might already be closed
         
         return {
             'processed': processed,
