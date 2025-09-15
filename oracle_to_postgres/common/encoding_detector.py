@@ -151,6 +151,21 @@ class EncodingDetector:
             except (UnicodeDecodeError, UnicodeError):
                 continue
         
+        # Try with error handling strategies
+        for encoding in self.COMMON_ENCODINGS:
+            for error_strategy in ['ignore', 'replace']:
+                try:
+                    decoded = data.decode(encoding, errors=error_strategy)
+                    if self._is_reasonable_text(decoded):
+                        # Lower confidence for error-handled decoding
+                        confidence = 0.4 if error_strategy == 'replace' else 0.3
+                        return EncodingResult(
+                            encoding=f"{encoding}:{error_strategy}", 
+                            confidence=confidence
+                        )
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+        
         return None
     
     def _is_reasonable_text(self, text: str) -> bool:
@@ -215,6 +230,54 @@ class EncodingDetector:
             return True
         except (UnicodeDecodeError, UnicodeError, IOError):
             return False
+    
+    def read_file_safely(self, file_path: str, encoding: str = None) -> Tuple[str, str]:
+        """
+        Safely read file content with automatic encoding detection and error handling.
+        
+        Args:
+            file_path: Path to the file to read
+            encoding: Specific encoding to use (auto-detect if None)
+            
+        Returns:
+            Tuple of (content, actual_encoding_used)
+            
+        Raises:
+            IOError: If file cannot be read at all
+        """
+        if encoding is None:
+            detection_result = self.detect_encoding(file_path)
+            encoding = detection_result.encoding
+        
+        # Parse encoding and error strategy if specified
+        error_strategy = 'strict'
+        if ':' in encoding:
+            encoding, error_strategy = encoding.split(':', 1)
+        
+        try:
+            with open(file_path, 'r', encoding=encoding, errors=error_strategy) as f:
+                content = f.read()
+            return content, f"{encoding}:{error_strategy}" if error_strategy != 'strict' else encoding
+        except UnicodeDecodeError as e:
+            # Try with replace strategy
+            try:
+                with open(file_path, 'r', encoding=encoding, errors='replace') as f:
+                    content = f.read()
+                return content, f"{encoding}:replace"
+            except Exception:
+                # Try with ignore strategy
+                try:
+                    with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+                        content = f.read()
+                    return content, f"{encoding}:ignore"
+                except Exception:
+                    # Last resort: try UTF-8 with replace
+                    try:
+                        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                            content = f.read()
+                        return content, "utf-8:replace"
+                    except Exception as final_e:
+                        raise IOError(f"Cannot read file {file_path} with any encoding strategy: {final_e}")
 
 
 class EncodingConverter:

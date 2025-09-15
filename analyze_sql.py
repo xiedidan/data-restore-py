@@ -194,12 +194,15 @@ class SQLAnalyzer:
     def _parse_sql_file(self, file_path: str, encoding: str) -> List[str]:
         """Parse SQL file and extract sample INSERT statements."""
         try:
-            # Read file content
-            with open(file_path, 'r', encoding=encoding) as f:
-                content = f.read()
+            # Use safe file reading with encoding detection
+            content, actual_encoding = self.encoding_detector.read_file_safely(file_path, encoding)
+            
+            # Log if we had to use error handling
+            if ':' in actual_encoding and actual_encoding != encoding:
+                self.logger.warning(f"Used encoding fallback for {file_path}: {actual_encoding}")
             
             # Parse INSERT statements
-            statements = self.sql_parser.parse_insert_statements(content, encoding)
+            statements = self.sql_parser.parse_insert_statements(content, actual_encoding.split(':')[0])
             
             # Extract sample statements (limit to avoid token limits)
             sample_statements = []
