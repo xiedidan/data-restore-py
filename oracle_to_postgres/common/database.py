@@ -65,6 +65,27 @@ class DatabaseManager:
         self._connection_tested = False
         self._has_dict_cursor = False
     
+    def _extract_value(self, result, index_or_key):
+        """
+        Extract value from cursor result, handling both tuple and dict formats.
+        
+        Args:
+            result: Result from cursor.fetchone() or cursor.fetchall()
+            index_or_key: Index for tuple results or key for dict results
+            
+        Returns:
+            Extracted value
+        """
+        if result is None:
+            return None
+        
+        if isinstance(result, (tuple, list)):
+            return result[index_or_key] if isinstance(index_or_key, int) else result[0]
+        elif isinstance(result, dict):
+            return result.get(index_or_key)
+        else:
+            return str(result)
+    
     def initialize_pool(self) -> None:
         """Initialize connection pool."""
         try:
@@ -112,7 +133,8 @@ class DatabaseManager:
             
             with conn.cursor() as cursor:
                 cursor.execute("SELECT version();")
-                version = cursor.fetchone()[0]
+                result = cursor.fetchone()
+                version = self._extract_value(result, 0)
                 self.logger.info(f"✓ Connected to PostgreSQL: {version}")
             
             conn.close()
@@ -236,7 +258,8 @@ class DatabaseManager:
             with self.get_connection() as conn:
                 with conn.cursor() as cursor:
                     cursor.execute(check_sql, (schema, table_name))
-                    return cursor.fetchone()[0]
+                    result = cursor.fetchone()
+                    return bool(self._extract_value(result, 0)) if result else False
         except Exception as e:
             self.logger.error(f"Error checking table existence: {str(e)}")
             return False
@@ -297,11 +320,22 @@ class DatabaseManager:
                     cursor.execute(info_sql, (schema, table_name))
                     columns = cursor.fetchall()
                     
+                    # Handle both tuple and dict results
+                    if columns and self._has_dict_cursor:
+                        column_list = [dict(col) for col in columns]
+                    elif columns:
+                        # Convert tuple results to dictionaries
+                        column_names = ['column_name', 'data_type', 'is_nullable', 'column_default', 
+                                      'character_maximum_length', 'numeric_precision', 'numeric_scale']
+                        column_list = [dict(zip(column_names, col)) for col in columns]
+                    else:
+                        column_list = []
+                    
                     return {
                         'schema': schema,
                         'table_name': table_name,
-                        'columns': [dict(col) for col in columns],
-                        'column_count': len(columns)
+                        'columns': column_list,
+                        'column_count': len(columns) if columns else 0
                     }
         except Exception as e:
             self.logger.error(f"Error getting table info: {str(e)}")
@@ -385,7 +419,8 @@ class DatabaseManager:
                     for key, query in info_queries.items():
                         try:
                             cursor.execute(query)
-                            info[key] = cursor.fetchone()[0]
+                            result = cursor.fetchone()
+                            info[key] = self._extract_value(result, 0)
                         except Exception as e:
                             info[key] = f"Error: {str(e)}"
         except Exception as e:
