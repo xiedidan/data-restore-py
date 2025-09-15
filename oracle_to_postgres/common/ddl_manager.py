@@ -298,34 +298,13 @@ class DDLManager:
         )
         
         try:
-            # Check if table already exists
-            table_exists = self.db_manager.table_exists(ddl_file.table_name)
-            self.logger.debug(f"Table {ddl_file.table_name} exists: {table_exists}")
+            if drop_existing:
+                self.logger.info(f"Drop existing enabled for table {ddl_file.table_name}")
             
-            # Debug: Show where the table actually exists
-            if not table_exists:
-                self._debug_table_location(ddl_file.table_name)
-            
-            if table_exists and drop_existing:
-                # Drop existing table
-                self.logger.info(f"Dropping existing table {ddl_file.table_name}")
-                drop_result = self.db_manager.drop_table(ddl_file.table_name)
-                result.table_dropped = drop_result.success
-                
-                if not drop_result.success:
-                    result.error_message = f"Failed to drop existing table: {drop_result.error_message}"
-                    return result
-                else:
-                    self.logger.info(f"✓ Dropped existing table {ddl_file.table_name}")
-            elif table_exists and not drop_existing:
-                self.logger.warning(f"Table {ddl_file.table_name} already exists, skipping (drop_existing=False)")
-                result.error_message = "Table already exists (use --drop-existing to replace)"
-                return result
-            
-            # Execute DDL
+            # Execute DDL with drop_if_exists option
             execution_result = self.ddl_executor.create_table_from_file(
                 ddl_file.file_path, 
-                drop_if_exists=False  # We already handled dropping above
+                drop_if_exists=drop_existing
             )
             
             result.success = execution_result.success
@@ -341,34 +320,7 @@ class DDLManager:
         result.execution_time = time.time() - start_time
         return result
     
-    def _debug_table_location(self, table_name: str) -> None:
-        """Debug method to show where a table actually exists."""
-        try:
-            debug_sql = """
-            SELECT table_schema, table_name 
-            FROM information_schema.tables 
-            WHERE table_name ILIKE %s
-            """
-            
-            with self.db_manager.get_connection() as conn:
-                with conn.cursor() as cursor:
-                    cursor.execute(debug_sql, (table_name,))
-                    results = cursor.fetchall()
-                    
-                    if results:
-                        self.logger.debug(f"Table {table_name} found in schemas:")
-                        for row in results:
-                            if isinstance(row, (tuple, list)):
-                                schema_name = row[0]
-                                table_name_found = row[1]
-                            else:
-                                schema_name = row.get('table_schema', 'unknown')
-                                table_name_found = row.get('table_name', 'unknown')
-                            self.logger.debug(f"  - {schema_name}.{table_name_found}")
-                    else:
-                        self.logger.debug(f"Table {table_name} not found in any schema")
-        except Exception as e:
-            self.logger.debug(f"Error checking table location: {e}")
+
     
     def get_execution_summary(self, results: List[DDLExecutionResult]) -> Dict[str, any]:
         """

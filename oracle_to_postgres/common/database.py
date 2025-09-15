@@ -506,9 +506,11 @@ class DDLExecutor:
             if drop_if_exists:
                 table_name = self._extract_table_name_from_ddl(ddl_content)
                 if table_name:
-                    self.logger.debug(f"Dropping existing table: {table_name}")
-                    drop_result = self.db_manager.drop_table(table_name)
-                    if not drop_result.success:
+                    self.logger.info(f"Dropping existing table if exists: {table_name}")
+                    drop_result = self.db_manager.drop_table(table_name, if_exists=True)
+                    if drop_result.success:
+                        self.logger.info(f"✓ Dropped table {table_name} (if it existed)")
+                    else:
                         self.logger.warning(f"Failed to drop table {table_name}: {drop_result.error_message}")
             
             # Execute DDL
