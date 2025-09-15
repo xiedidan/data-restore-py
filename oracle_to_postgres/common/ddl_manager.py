@@ -358,9 +358,13 @@ class DDLManager:
                     if results:
                         self.logger.debug(f"Table {table_name} found in schemas:")
                         for row in results:
-                            schema = self.db_manager._extract_value(row, 0)
-                            name = self.db_manager._extract_value(row, 1)
-                            self.logger.debug(f"  - {schema}.{name}")
+                            if isinstance(row, (tuple, list)):
+                                schema_name = row[0]
+                                table_name_found = row[1]
+                            else:
+                                schema_name = row.get('table_schema', 'unknown')
+                                table_name_found = row.get('table_name', 'unknown')
+                            self.logger.debug(f"  - {schema_name}.{table_name_found}")
                     else:
                         self.logger.debug(f"Table {table_name} not found in any schema")
         except Exception as e:

@@ -245,7 +245,7 @@ class DatabaseManager:
         Returns:
             True if table exists, False otherwise
         """
-        schema = schema or self.connection_info.schema
+        schema = schema or self.connection_info.schema or 'public'
         self.logger.debug(f"Checking table existence: table={table_name}, schema={schema}")
         
         check_sql = """
@@ -279,7 +279,7 @@ class DatabaseManager:
         Returns:
             ExecutionResult with execution details
         """
-        schema = schema or self.connection_info.schema
+        schema = schema or self.connection_info.schema or 'public'
         
         if if_exists:
             drop_sql = f'DROP TABLE IF EXISTS "{schema}"."{table_name}";'
@@ -300,7 +300,7 @@ class DatabaseManager:
         Returns:
             Dictionary with table information
         """
-        schema = schema or self.connection_info.schema
+        schema = schema or self.connection_info.schema or 'public'
         
         info_sql = """
         SELECT 
@@ -353,7 +353,7 @@ class DatabaseManager:
         Returns:
             List of table names
         """
-        schema = schema or self.connection_info.schema
+        schema = schema or self.connection_info.schema or 'public'
         
         list_sql = """
         SELECT table_name 

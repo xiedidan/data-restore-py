@@ -346,6 +346,11 @@ def main():
         creator.logger.info(f"  drop_existing: {config.table_creation.drop_existing}")
         creator.logger.info(f"  stop_on_error: {config.table_creation.stop_on_error}")
         creator.logger.info(f"  dry_run: {config.table_creation.dry_run}")
+        creator.logger.info(f"PostgreSQL configuration:")
+        creator.logger.info(f"  database: {config.postgresql.database}")
+        creator.logger.info(f"  schema: {config.postgresql.schema}")
+        creator.logger.info(f"  host: {config.postgresql.host}")
+        creator.logger.info(f"  port: {config.postgresql.port}")
         
         with TimedLogger(creator.logger, "Table creation"):
             results = creator.create_tables(
