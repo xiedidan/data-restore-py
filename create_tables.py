@@ -341,6 +341,12 @@ def main():
         # Create table creator and run
         creator = TableCreator(config)
         
+        # Debug: Show configuration values
+        creator.logger.info(f"Table creation configuration:")
+        creator.logger.info(f"  drop_existing: {config.table_creation.drop_existing}")
+        creator.logger.info(f"  stop_on_error: {config.table_creation.stop_on_error}")
+        creator.logger.info(f"  dry_run: {config.table_creation.dry_run}")
+        
         with TimedLogger(creator.logger, "Table creation"):
             results = creator.create_tables(
                 drop_existing=config.table_creation.drop_existing,

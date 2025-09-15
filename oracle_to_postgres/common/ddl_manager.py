@@ -266,6 +266,7 @@ class DDLManager:
         results = []
         
         self.logger.info(f"Executing {len(ddl_files)} DDL files...")
+        self.logger.info(f"Configuration: drop_existing={drop_existing}, stop_on_error={stop_on_error}")
         
         for i, ddl_file in enumerate(ddl_files, 1):
             self.logger.progress(i, len(ddl_files), f"Creating table {ddl_file.table_name}")
@@ -299,16 +300,21 @@ class DDLManager:
         try:
             # Check if table already exists
             table_exists = self.db_manager.table_exists(ddl_file.table_name)
+            self.logger.debug(f"Table {ddl_file.table_name} exists: {table_exists}")
             
             if table_exists and drop_existing:
                 # Drop existing table
+                self.logger.info(f"Dropping existing table {ddl_file.table_name}")
                 drop_result = self.db_manager.drop_table(ddl_file.table_name)
                 result.table_dropped = drop_result.success
                 
                 if not drop_result.success:
                     result.error_message = f"Failed to drop existing table: {drop_result.error_message}"
                     return result
+                else:
+                    self.logger.info(f"✓ Dropped existing table {ddl_file.table_name}")
             elif table_exists and not drop_existing:
+                self.logger.warning(f"Table {ddl_file.table_name} already exists, skipping (drop_existing=False)")
                 result.error_message = "Table already exists (use --drop-existing to replace)"
                 return result
             
