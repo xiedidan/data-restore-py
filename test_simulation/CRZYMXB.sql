@@ -1,0 +1,1 @@
+INSERT INTO CRZYMXB (ID, NAME) VALUES (1, 'Test Data');

@@ -1,0 +1,1 @@
+INSERT INTO HZSQKSB (ID, NAME) VALUES (1, 'ВтЪдЪ§Он');

@@ -125,29 +125,90 @@ class DataImporter:
             Dictionary mapping file paths to their encodings
         """
         encoding_map = {}
-        report_file = os.path.join("./reports", 'encoding_analysis.csv')
         
-        if not os.path.exists(report_file):
-            self.logger.warning(f"Encoding report not found: {report_file}")
+        # Look for the most recent encoding analysis report
+        reports_dir = Path("./reports")
+        if not reports_dir.exists():
+            self.logger.warning("Reports directory not found")
+            return encoding_map
+        
+        # Find all encoding analysis CSV files
+        encoding_files = list(reports_dir.glob("encoding_analysis*.csv"))
+        
+        if not encoding_files:
+            self.logger.warning("No encoding analysis reports found in reports directory")
             self.logger.info("Will attempt to detect encoding for each file during import")
             return encoding_map
+        
+        # Use the most recent report (sort by filename which includes timestamp)
+        report_file = sorted(encoding_files)[-1]
+        self.logger.info(f"Using encoding report: {report_file}")
         
         try:
             with open(report_file, 'r', encoding='utf-8') as f:
                 reader = csv.DictReader(f)
                 for row in reader:
+                    # Handle both old and new report formats
                     file_path = row.get('file_path', '')
+                    file_name = row.get('file_name', '')
                     encoding = row.get('encoding', 'utf-8')
-                    if file_path:
+                    
+                    # If we have file_name but not file_path, construct the path
+                    if file_name and not file_path:
+                        # Assume files are in the source directory
+                        source_dir = Path(self.config.source_directory)
+                        file_path = str(source_dir / file_name)
+                    
+                    if file_path and encoding:
                         encoding_map[file_path] = encoding
+                        # Also map by filename for easier lookup
+                        if file_name:
+                            encoding_map[file_name] = encoding
             
-            self.logger.info(f"Loaded encoding information for {len(encoding_map)} files")
+            self.logger.info(f"Loaded encoding information for {len(encoding_map)} files from {report_file.name}")
             
         except Exception as e:
             self.logger.error(f"Failed to load encoding report: {str(e)}")
-            self.error_handler.handle_file_error(e, report_file)
+            self.error_handler.handle_file_error(e, str(report_file))
         
         return encoding_map
+    
+    def detect_file_encoding(self, file_path: str) -> str:
+        """
+        Detect encoding of a file using chardet.
+        
+        Args:
+            file_path: Path to the file
+            
+        Returns:
+            Detected encoding or 'utf-8' as fallback
+        """
+        try:
+            import chardet
+            
+            with open(file_path, 'rb') as f:
+                # Read first 10KB for encoding detection
+                raw_data = f.read(10240)
+                
+            result = chardet.detect(raw_data)
+            encoding = result.get('encoding', 'utf-8')
+            confidence = result.get('confidence', 0)
+            
+            self.logger.debug(f"Detected encoding for {file_path}: {encoding} (confidence: {confidence:.2f})")
+            
+            # Use utf-8 if confidence is too low
+            if confidence < 0.7:
+                self.logger.warning(f"Low confidence ({confidence:.2f}) for encoding detection of {file_path}, using utf-8")
+                return 'utf-8'
+                
+            return encoding
+            
+        except ImportError:
+            self.logger.warning("chardet not available, using utf-8 encoding")
+            return 'utf-8'
+        except Exception as e:
+            self.logger.error(f"Failed to detect encoding for {file_path}: {str(e)}")
+            return 'utf-8'
     
     def discover_sql_files(self) -> List[str]:
         """
@@ -184,8 +245,19 @@ class DataImporter:
         import_tasks = []
         
         for sql_file in sql_files:
-            # Get encoding from report or use default
-            encoding = encoding_map.get(sql_file, "utf-8")
+            # Get encoding from report or detect it
+            file_name = os.path.basename(sql_file)
+            
+            # Try to find encoding by full path first, then by filename
+            if sql_file in encoding_map:
+                encoding = encoding_map[sql_file]
+                self.logger.debug(f"Found encoding for {file_name} by full path: {encoding}")
+            elif file_name in encoding_map:
+                encoding = encoding_map[file_name]
+                self.logger.debug(f"Found encoding for {file_name} by filename: {encoding}")
+            else:
+                encoding = self.detect_file_encoding(sql_file)
+                self.logger.debug(f"Detected encoding for {file_name}: {encoding}")
             
             # Extract table name from file name (assuming format like table_name.sql)
             file_name = os.path.basename(sql_file)
