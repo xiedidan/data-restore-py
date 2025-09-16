@@ -90,7 +90,7 @@ class SQLFileReader:
         
     def read_chunks(self) -> Iterator[ImportChunk]:
         """
-        Read SQL file in chunks.
+        Read SQL file in chunks using true streaming approach.
         
         Yields:
             ImportChunk objects containing SQL statements
@@ -101,22 +101,20 @@ class SQLFileReader:
         chunk_start_line = 0
         
         try:
-            # Use the same fallback mechanism as before
-            content = self._read_file_with_fallback()
-            
-            # Split into statements
-            statements = self._split_sql_statements(content)
-            
             if self.logger:
-                self.logger.info(f"Found {len(statements)} SQL statements in {self.file_path}")
+                self.logger.info(f"Starting streaming read of {self.file_path}")
             
-            for i, statement in enumerate(statements):
+            # Stream read file line by line
+            for statement in self._stream_sql_statements():
                 if statement.strip():
                     current_chunk.append(statement)
                     current_line += 1
                     
-                    # When chunk is full, yield it
+                    # When chunk is full, yield it immediately
                     if len(current_chunk) >= self.chunk_size:
+                        if self.logger:
+                            self.logger.debug(f"Yielding chunk {chunk_id} with {len(current_chunk)} statements")
+                        
                         yield ImportChunk(
                             chunk_id=chunk_id,
                             file_path=self.file_path,
@@ -131,6 +129,9 @@ class SQLFileReader:
             
             # Yield remaining statements
             if current_chunk:
+                if self.logger:
+                    self.logger.debug(f"Yielding final chunk {chunk_id} with {len(current_chunk)} statements")
+                
                 yield ImportChunk(
                     chunk_id=chunk_id,
                     file_path=self.file_path,
@@ -138,11 +139,123 @@ class SQLFileReader:
                     start_line=chunk_start_line,
                     end_line=current_line
                 )
+            
+            if self.logger:
+                self.logger.info(f"Completed streaming read: {chunk_id + 1} chunks, {current_line} statements")
                 
         except Exception as e:
             if self.logger:
                 self.logger.error(f"Error reading file {self.file_path}: {str(e)}")
             raise
+    
+    def _stream_sql_statements(self) -> Iterator[str]:
+        """
+        Stream SQL statements from file without loading entire file into memory.
+        
+        Yields:
+            Individual SQL statements
+        """
+        # Try different encodings
+        encodings_to_try = [
+            self.encoding,
+            'utf-8',
+            'gbk',
+            'gb2312',
+            'gb18030',
+            'latin-1',
+            'cp1252',
+            'iso-8859-1'
+        ]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_encodings = []
+        for enc in encodings_to_try:
+            if enc not in seen:
+                seen.add(enc)
+                unique_encodings.append(enc)
+        
+        file_handle = None
+        encoding_used = None
+        
+        # Try to open file with different encodings
+        for encoding in unique_encodings:
+            try:
+                if self.logger:
+                    self.logger.debug(f"Trying to open {self.file_path} with encoding: {encoding}")
+                
+                file_handle = open(self.file_path, 'r', encoding=encoding, errors='strict')
+                encoding_used = encoding
+                
+                if self.logger and encoding != self.encoding:
+                    self.logger.warning(f"Using fallback encoding: {encoding} for {self.file_path}")
+                
+                break
+                
+            except UnicodeDecodeError:
+                if file_handle:
+                    file_handle.close()
+                continue
+            except Exception as e:
+                if file_handle:
+                    file_handle.close()
+                continue
+        
+        if not file_handle:
+            # Final fallback with error replacement
+            try:
+                if self.logger:
+                    self.logger.warning(f"All encodings failed, using error replacement for {self.file_path}")
+                file_handle = open(self.file_path, 'r', encoding=self.encoding, errors='replace')
+                encoding_used = self.encoding
+            except Exception as e:
+                raise Exception(f"Unable to open file {self.file_path}: {str(e)}")
+        
+        try:
+            # Stream process the file
+            current_statement = ""
+            in_string = False
+            escape_next = False
+            line_count = 0
+            
+            for line in file_handle:
+                line_count += 1
+                
+                # Log progress for very large files
+                if self.logger and line_count % 100000 == 0:
+                    self.logger.debug(f"Processed {line_count} lines from {self.file_path}")
+                
+                for char in line:
+                    if escape_next:
+                        current_statement += char
+                        escape_next = False
+                        continue
+                    
+                    if char == '\\':
+                        escape_next = True
+                        current_statement += char
+                        continue
+                    
+                    if char == "'" and not escape_next:
+                        in_string = not in_string
+                    
+                    current_statement += char
+                    
+                    if char == ';' and not in_string:
+                        if current_statement.strip():
+                            yield current_statement.strip()
+                        current_statement = ""
+            
+            # Yield remaining statement if any
+            if current_statement.strip():
+                yield current_statement.strip()
+            
+            if self.logger:
+                self.logger.info(f"Streamed {line_count} lines from {self.file_path} using {encoding_used}")
+                
+        finally:
+            if file_handle:
+                file_handle.close()
     
     def _read_file_with_fallback(self) -> str:
         """Read file with encoding fallback mechanism."""
@@ -431,19 +544,27 @@ class StreamingParallelImporter:
                 chunk_count = 0
                 total_statements = 0
                 
+                if self.logger:
+                    self.logger.info(f"Producer started for {file_path}")
+                
                 for chunk in reader.read_chunks():
+                    # Put chunk in queue (this will block if queue is full)
                     chunk_queue.put(chunk)
                     chunk_count += 1
                     total_statements += len(chunk.statements)
                     
-                    # Update progress
-                    progress.total_chunks = chunk_count
+                    # Update progress (estimate total based on current progress)
+                    progress.total_chunks = chunk_count  # Will be updated as we go
                     progress.total_statements = total_statements
                     
                     if self.logger:
                         self.logger.debug(f"Queued chunk {chunk.chunk_id} with {len(chunk.statements)} statements")
                 
-                # Signal end of chunks
+                # Update final totals
+                progress.total_chunks = chunk_count
+                progress.total_statements = total_statements
+                
+                # Signal end of chunks to all workers
                 for _ in range(self.max_workers):
                     chunk_queue.put(None)
                 
@@ -453,9 +574,12 @@ class StreamingParallelImporter:
             except Exception as e:
                 if self.logger:
                     self.logger.error(f"Producer error: {str(e)}")
-                # Signal workers to stop
+                # Signal workers to stop on error
                 for _ in range(self.max_workers):
-                    chunk_queue.put(None)
+                    try:
+                        chunk_queue.put(None, timeout=1)
+                    except:
+                        pass
         
         # Start producer thread
         producer_thread = threading.Thread(target=producer, daemon=True)
@@ -520,8 +644,8 @@ class StreamingParallelImporter:
         try:
             while True:
                 try:
-                    # Get chunk from queue (with timeout)
-                    chunk = chunk_queue.get(timeout=30)
+                    # Get chunk from queue (with longer timeout for large files)
+                    chunk = chunk_queue.get(timeout=120)  # Increased timeout
                     
                     # None signals end of work
                     if chunk is None:
