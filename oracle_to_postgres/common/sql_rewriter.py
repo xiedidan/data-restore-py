@@ -242,8 +242,8 @@ class SQLRewriter:
         
         statement = re.sub(select_from_pattern, replace_select_schema, statement, flags=re.IGNORECASE | re.DOTALL)
         
-        # Convert column names to lowercase for PostgreSQL compatibility
-        statement = self._convert_column_names_to_lowercase(statement)
+        # Quote column names to preserve case for PostgreSQL compatibility
+        statement = self._quote_column_names(statement)
         
         return statement
     
@@ -264,31 +264,28 @@ class SQLRewriter:
         
         return statement
     
-    def _convert_column_names_to_lowercase(self, statement: str) -> str:
-        """Convert column names in INSERT statements to lowercase for PostgreSQL compatibility."""
+    def _quote_column_names(self, statement: str) -> str:
+        """Quote column names in INSERT statements to preserve case for PostgreSQL compatibility."""
         # Pattern to match INSERT INTO table (column1, column2, ...) VALUES
         insert_columns_pattern = r'INSERT\s+INTO\s+[^(]+\(([^)]+)\)'
         
-        def convert_columns(match):
+        def quote_columns(match):
             columns_part = match.group(1)
-            # Split by comma and convert each column name to lowercase
+            # Split by comma and add quotes to each column name
             columns = []
             for col in columns_part.split(','):
                 col = col.strip()
-                # Remove quotes if present, convert to lowercase, then add back quotes if needed
-                if col.startswith('"') and col.endswith('"'):
-                    # Already quoted, just convert content to lowercase
-                    col_name = col[1:-1].lower()
-                    columns.append(f'"{col_name}"')
+                # Only add quotes if not already quoted
+                if not (col.startswith('"') and col.endswith('"')):
+                    columns.append(f'"{col}"')
                 else:
-                    # Not quoted, convert to lowercase (PostgreSQL will treat as lowercase anyway)
-                    col_name = col.lower()
-                    columns.append(col_name)
+                    # Already quoted, keep as is
+                    columns.append(col)
             
-            # Reconstruct the match with lowercase column names
+            # Reconstruct the match with quoted column names
             return match.group(0).replace(match.group(1), ', '.join(columns))
         
-        statement = re.sub(insert_columns_pattern, convert_columns, statement, flags=re.IGNORECASE)
+        statement = re.sub(insert_columns_pattern, quote_columns, statement, flags=re.IGNORECASE)
         
         return statement
     
