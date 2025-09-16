@@ -56,12 +56,26 @@ class SQLRewriter:
             description="Replace source database name with target database name"
         ))
         
-        # Schema-qualified table references - comprehensive replacement
-        # Handle INSERT INTO schema.table
+        # Schema-qualified table references with V_HIS_ prefix handling
+        # Handle INSERT INTO schema.V_HIS_table -> INSERT INTO target_schema.table
+        rules.append(RewriteRule(
+            pattern=r'INSERT\s+INTO\s+(\w+)\.V_HIS_(\w+)',
+            replacement=rf'INSERT INTO "{self.target_schema}"."\2"',
+            description="Replace schema and remove V_HIS_ prefix in INSERT statements"
+        ))
+        
+        # Handle INSERT INTO schema.table (without V_HIS_ prefix)
         rules.append(RewriteRule(
             pattern=r'INSERT\s+INTO\s+(\w+)\.(\w+)',
             replacement=rf'INSERT INTO "{self.target_schema}"."\2"',
             description="Replace schema in INSERT statements"
+        ))
+        
+        # Handle SELECT FROM schema.V_HIS_table
+        rules.append(RewriteRule(
+            pattern=r'FROM\s+(\w+)\.V_HIS_(\w+)',
+            replacement=rf'FROM "{self.target_schema}"."\2"',
+            description="Replace schema and remove V_HIS_ prefix in FROM clauses"
         ))
         
         # Handle SELECT FROM schema.table
@@ -71,11 +85,25 @@ class SQLRewriter:
             description="Replace schema in FROM clauses"
         ))
         
+        # Handle JOIN schema.V_HIS_table
+        rules.append(RewriteRule(
+            pattern=r'JOIN\s+(\w+)\.V_HIS_(\w+)',
+            replacement=rf'JOIN "{self.target_schema}"."\2"',
+            description="Replace schema and remove V_HIS_ prefix in JOIN clauses"
+        ))
+        
         # Handle JOIN schema.table
         rules.append(RewriteRule(
             pattern=r'JOIN\s+(\w+)\.(\w+)',
             replacement=rf'JOIN "{self.target_schema}"."\2"',
             description="Replace schema in JOIN clauses"
+        ))
+        
+        # Handle UPDATE schema.V_HIS_table
+        rules.append(RewriteRule(
+            pattern=r'UPDATE\s+(\w+)\.V_HIS_(\w+)',
+            replacement=rf'UPDATE "{self.target_schema}"."\2"',
+            description="Replace schema and remove V_HIS_ prefix in UPDATE statements"
         ))
         
         # Handle UPDATE schema.table
@@ -85,6 +113,13 @@ class SQLRewriter:
             description="Replace schema in UPDATE statements"
         ))
         
+        # Handle DELETE FROM schema.V_HIS_table
+        rules.append(RewriteRule(
+            pattern=r'DELETE\s+FROM\s+(\w+)\.V_HIS_(\w+)',
+            replacement=rf'DELETE FROM "{self.target_schema}"."\2"',
+            description="Replace schema and remove V_HIS_ prefix in DELETE statements"
+        ))
+        
         # Handle DELETE FROM schema.table
         rules.append(RewriteRule(
             pattern=r'DELETE\s+FROM\s+(\w+)\.(\w+)',
@@ -92,9 +127,9 @@ class SQLRewriter:
             description="Replace schema in DELETE statements"
         ))
         
-        # Remove V_HIS_ prefix from table names (Oracle views -> PostgreSQL tables)
+        # Remove remaining V_HIS_ prefix from table names (for cases without schema)
         rules.append(RewriteRule(
-            pattern=r'V_HIS_(\w+)',
+            pattern=r'\bV_HIS_(\w+)\b',
             replacement=r'\1',
             description="Remove V_HIS_ prefix from table names"
         ))
@@ -120,8 +155,7 @@ class SQLRewriter:
             description="Remove Oracle DUAL table references"
         ))
         
-        # Convert column names to lowercase (PostgreSQL standard)
-        # This will be handled in _process_insert_specific method
+        # Date format conversions will be handled in _process_insert_specific method
         
         # Oracle sequence NEXTVAL
         rules.append(RewriteRule(
@@ -230,6 +264,17 @@ class SQLRewriter:
         
         statement = re.sub(insert_pattern, add_schema, statement, flags=re.IGNORECASE)
         
+        # Handle remaining schema.table patterns that weren't caught by the main rules
+        # This is a fallback for any remaining schema references
+        remaining_schema_pattern = r'INSERT\s+INTO\s+(\w+)\.(\w+)'
+        
+        def replace_remaining_schema(match):
+            schema = match.group(1)
+            table = match.group(2)
+            return f'INSERT INTO "{self.target_schema}"."{table}"'
+        
+        statement = re.sub(remaining_schema_pattern, replace_remaining_schema, statement, flags=re.IGNORECASE)
+        
         # Also handle SELECT statements within INSERT (INSERT INTO ... SELECT FROM ...)
         # Replace any remaining schema references in subqueries
         select_from_pattern = r'SELECT\s+.*?\s+FROM\s+(\w+)\.(\w+)'
@@ -244,6 +289,9 @@ class SQLRewriter:
         
         # Quote column names to preserve case for PostgreSQL compatibility
         statement = self._quote_column_names(statement)
+        
+        # Convert date formats for PostgreSQL compatibility
+        statement = self._convert_date_formats(statement)
         
         return statement
     
@@ -266,8 +314,9 @@ class SQLRewriter:
     
     def _quote_column_names(self, statement: str) -> str:
         """Quote column names in INSERT statements to preserve case for PostgreSQL compatibility."""
+        # Only quote column names if they are explicitly listed in the INSERT statement
         # Pattern to match INSERT INTO table (column1, column2, ...) VALUES
-        insert_columns_pattern = r'INSERT\s+INTO\s+[^(]+\(([^)]+)\)'
+        insert_columns_pattern = r'INSERT\s+INTO\s+[^(]+\(([^)]+)\)\s+VALUES'
         
         def quote_columns(match):
             columns_part = match.group(1)
@@ -275,17 +324,118 @@ class SQLRewriter:
             columns = []
             for col in columns_part.split(','):
                 col = col.strip()
-                # Only add quotes if not already quoted
-                if not (col.startswith('"') and col.endswith('"')):
+                # Only add quotes if not already quoted and it's a valid column name
+                if not (col.startswith('"') and col.endswith('"')) and col.replace('_', '').replace(' ', '').isalnum():
                     columns.append(f'"{col}"')
                 else:
-                    # Already quoted, keep as is
+                    # Already quoted or not a simple column name, keep as is
                     columns.append(col)
             
             # Reconstruct the match with quoted column names
             return match.group(0).replace(match.group(1), ', '.join(columns))
         
         statement = re.sub(insert_columns_pattern, quote_columns, statement, flags=re.IGNORECASE)
+        
+        return statement
+    
+    def _convert_date_formats(self, statement: str) -> str:
+        """Convert various date formats to PostgreSQL-compatible format with explicit casting."""
+        # Common Oracle date formats that need conversion
+        date_patterns = [
+            # DD-MM-YYYY HH24:MI:SS format with timestamp cast
+            {
+                'pattern': r"'(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})'::timestamp",
+                'replacement': r"'\3-\2-\1 \4:\5:\6'::timestamp",
+                'description': 'DD-MM-YYYY HH24:MI:SS to YYYY-MM-DD HH24:MI:SS with timestamp cast'
+            },
+            # DD-MM-YYYY HH24:MI:SS format without cast - add timestamp cast
+            {
+                'pattern': r"'(\d{2})-(\d{2})-(\d{4})\s+(\d{2}):(\d{2}):(\d{2})'(?!::)",
+                'replacement': r"'\3-\2-\1 \4:\5:\6'::timestamp",
+                'description': 'DD-MM-YYYY HH24:MI:SS to YYYY-MM-DD HH24:MI:SS with timestamp cast'
+            },
+            # DD-MM-YYYY format with date cast
+            {
+                'pattern': r"'(\d{2})-(\d{2})-(\d{4})'::date",
+                'replacement': r"'\3-\2-\1'::date",
+                'description': 'DD-MM-YYYY to YYYY-MM-DD with date cast'
+            },
+            # DD-MM-YYYY format without cast - add date cast
+            {
+                'pattern': r"'(\d{2})-(\d{2})-(\d{4})'(?!::)(?!\s+\d{2}:)",
+                'replacement': r"'\3-\2-\1'::date",
+                'description': 'DD-MM-YYYY to YYYY-MM-DD with date cast'
+            },
+            # DD/MM/YYYY HH24:MI:SS format
+            {
+                'pattern': r"'(\d{2})/(\d{2})/(\d{4})\s+(\d{2}):(\d{2}):(\d{2})'(?!::)",
+                'replacement': r"'\3-\2-\1 \4:\5:\6'::timestamp",
+                'description': 'DD/MM/YYYY HH24:MI:SS to YYYY-MM-DD HH24:MI:SS with timestamp cast'
+            },
+            # DD/MM/YYYY format
+            {
+                'pattern': r"'(\d{2})/(\d{2})/(\d{4})'(?!::)(?!\s+\d{2}:)",
+                'replacement': r"'\3-\2-\1'::date",
+                'description': 'DD/MM/YYYY to YYYY-MM-DD with date cast'
+            },
+            # DD.MM.YYYY HH24:MI:SS format
+            {
+                'pattern': r"'(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2}):(\d{2})'(?!::)",
+                'replacement': r"'\3-\2-\1 \4:\5:\6'::timestamp",
+                'description': 'DD.MM.YYYY HH24:MI:SS to YYYY-MM-DD HH24:MI:SS with timestamp cast'
+            },
+            # DD.MM.YYYY format
+            {
+                'pattern': r"'(\d{2})\.(\d{2})\.(\d{4})'(?!::)(?!\s+\d{2}:)",
+                'replacement': r"'\3-\2-\1'::date",
+                'description': 'DD.MM.YYYY to YYYY-MM-DD with date cast'
+            }
+        ]
+        
+        # Apply date format conversions in order (most specific first)
+        for date_pattern in date_patterns:
+            old_statement = statement
+            statement = re.sub(
+                date_pattern['pattern'], 
+                date_pattern['replacement'], 
+                statement, 
+                flags=re.IGNORECASE
+            )
+            
+            # Track statistics
+            if old_statement != statement:
+                self.rewrite_stats[date_pattern['description']] = (
+                    self.rewrite_stats.get(date_pattern['description'], 0) + 1
+                )
+        
+        # Additional fix: Handle any remaining date-like strings that might need casting
+        # Look for patterns like 'YYYY-MM-DD HH:MM:SS' that don't have explicit casting
+        remaining_datetime_pattern = r"'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})'(?!::)"
+        statement = re.sub(
+            remaining_datetime_pattern,
+            r"'\1'::timestamp",
+            statement,
+            flags=re.IGNORECASE
+        )
+        
+        # Look for patterns like 'YYYY-MM-DD' that don't have explicit casting
+        remaining_date_pattern = r"'(\d{4}-\d{2}-\d{2})'(?!::)(?!\s+\d{2}:)"
+        statement = re.sub(
+            remaining_date_pattern,
+            r"'\1'::date",
+            statement,
+            flags=re.IGNORECASE
+        )
+        
+        # Handle edge case: dates that already have timestamp cast but wrong format
+        # Pattern: '12-07-2022 09:17:22'::timestamp -> '2022-07-12 09:17:22'::timestamp
+        existing_timestamp_pattern = r"'(\d{2})-(\d{2})-(\d{4}\s+\d{2}:\d{2}:\d{2})'::timestamp"
+        statement = re.sub(
+            existing_timestamp_pattern,
+            r"'\3-\2-\1'::timestamp",
+            statement,
+            flags=re.IGNORECASE
+        )
         
         return statement
     
@@ -390,7 +540,8 @@ class SQLRewriter:
     
     def _is_insert_statement(self, statement: str) -> bool:
         """Check if statement is an INSERT statement."""
-        return re.match(r'^\s*INSERT\s+INTO', statement, re.IGNORECASE) is not None
+        # Check if the statement contains an INSERT statement, even if it has comments
+        return re.search(r'^\s*INSERT\s+INTO', statement, re.IGNORECASE | re.MULTILINE) is not None
     
     def _apply_general_rules(self, statement: str) -> str:
         """Apply general rewrite rules to any statement."""
