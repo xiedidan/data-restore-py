@@ -322,18 +322,10 @@ class SingleFileImporter:
             statement_lower.startswith('rem ')):
             return False
         
-        # Only allow standard SQL statements
+        # Only allow INSERT statements for data import
+        # Filter out SELECT, UPDATE, DELETE and other non-insert statements
         valid_sql_starts = [
-            'select',
-            'insert',
-            'update',
-            'delete',
-            'create',
-            'drop',
-            'alter',
-            'truncate',
-            'grant',
-            'revoke'
+            'insert'
         ]
         
         for valid_start in valid_sql_starts:
