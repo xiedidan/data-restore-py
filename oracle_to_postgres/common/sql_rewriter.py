@@ -120,6 +120,9 @@ class SQLRewriter:
             description="Remove Oracle DUAL table references"
         ))
         
+        # Convert column names to lowercase (PostgreSQL standard)
+        # This will be handled in _process_insert_specific method
+        
         # Oracle sequence NEXTVAL
         rules.append(RewriteRule(
             pattern=r'(\w+)\.NEXTVAL',
@@ -239,6 +242,9 @@ class SQLRewriter:
         
         statement = re.sub(select_from_pattern, replace_select_schema, statement, flags=re.IGNORECASE | re.DOTALL)
         
+        # Convert column names to lowercase for PostgreSQL compatibility
+        statement = self._convert_column_names_to_lowercase(statement)
+        
         return statement
     
     def _map_table_names(self, statement: str) -> str:
@@ -255,6 +261,34 @@ class SQLRewriter:
         # Handle cases where V_HIS_ appears without schema: V_HIS_TABLENAME -> TABLENAME
         v_his_bare_pattern = r'\bV_HIS_(\w+)\b'
         statement = re.sub(v_his_bare_pattern, r'\1', statement, flags=re.IGNORECASE)
+        
+        return statement
+    
+    def _convert_column_names_to_lowercase(self, statement: str) -> str:
+        """Convert column names in INSERT statements to lowercase for PostgreSQL compatibility."""
+        # Pattern to match INSERT INTO table (column1, column2, ...) VALUES
+        insert_columns_pattern = r'INSERT\s+INTO\s+[^(]+\(([^)]+)\)'
+        
+        def convert_columns(match):
+            columns_part = match.group(1)
+            # Split by comma and convert each column name to lowercase
+            columns = []
+            for col in columns_part.split(','):
+                col = col.strip()
+                # Remove quotes if present, convert to lowercase, then add back quotes if needed
+                if col.startswith('"') and col.endswith('"'):
+                    # Already quoted, just convert content to lowercase
+                    col_name = col[1:-1].lower()
+                    columns.append(f'"{col_name}"')
+                else:
+                    # Not quoted, convert to lowercase (PostgreSQL will treat as lowercase anyway)
+                    col_name = col.lower()
+                    columns.append(col_name)
+            
+            # Reconstruct the match with lowercase column names
+            return match.group(0).replace(match.group(1), ', '.join(columns))
+        
+        statement = re.sub(insert_columns_pattern, convert_columns, statement, flags=re.IGNORECASE)
         
         return statement
     
