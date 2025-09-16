@@ -145,9 +145,11 @@ Requirements:
 1. Use PostgreSQL data types: INTEGER, BIGINT, VARCHAR(n), TEXT, DECIMAL(p,s), TIMESTAMP, DATE, BOOLEAN
 2. Infer column names and types from INSERT values
 3. Set VARCHAR lengths with 50% buffer over max observed length
-4. Use NOT NULL only when confident from sample data
-5. Add PRIMARY KEY on 'id' column if exists
-6. Use double quotes for column names
+4. DO NOT add NOT NULL constraints - this is for data analysis, allow all columns to be nullable
+5. DO NOT add PRIMARY KEY constraints - this is for data analysis, not production use
+6. DO NOT add any CHECK constraints or other restrictions
+7. Use double quotes for column names
+8. Keep the DDL simple and permissive for data import
 
 OUTPUT FORMAT:
 Return ONLY the CREATE TABLE statement. No explanations, no markdown, no reasoning text.
@@ -155,9 +157,9 @@ Start directly with "CREATE TABLE" and end with the semicolon.
 
 Example format:
 CREATE TABLE "{table_name}" (
-    "column1" INTEGER NOT NULL,
+    "column1" INTEGER,
     "column2" VARCHAR(100),
-    PRIMARY KEY ("column1")
+    "column3" TEXT
 );
 """
         
