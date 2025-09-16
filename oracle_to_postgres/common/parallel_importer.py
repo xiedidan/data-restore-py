@@ -178,9 +178,8 @@ class SingleFileImporter:
             if self.logger:
                 self.logger.info(f"Starting import of {task.file_path}")
             
-            # Read and process the file
-            with open(task.file_path, 'r', encoding=task.encoding) as f:
-                content = f.read()
+            # Read and process the file with encoding error handling
+            content = self._read_file_with_fallback(task.file_path, task.encoding)
             
             # Split into SQL statements
             statements = self._split_sql_statements(content)
@@ -333,6 +332,81 @@ class SingleFileImporter:
                 return True
         
         return False
+    
+    def _read_file_with_fallback(self, file_path: str, primary_encoding: str) -> str:
+        """
+        Read file with encoding fallback mechanism.
+        
+        Args:
+            file_path: Path to the file
+            primary_encoding: Primary encoding to try first
+            
+        Returns:
+            File content as string
+        """
+        # List of encodings to try in order
+        encodings_to_try = [
+            primary_encoding,
+            'utf-8',
+            'gbk',
+            'gb2312',
+            'gb18030',  # Extended GBK
+            'latin-1',
+            'cp1252',
+            'iso-8859-1'
+        ]
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_encodings = []
+        for enc in encodings_to_try:
+            if enc not in seen:
+                seen.add(enc)
+                unique_encodings.append(enc)
+        
+        last_error = None
+        
+        for encoding in unique_encodings:
+            try:
+                if self.logger:
+                    self.logger.debug(f"Trying to read {file_path} with encoding: {encoding}")
+                
+                with open(file_path, 'r', encoding=encoding, errors='strict') as f:
+                    content = f.read()
+                
+                if self.logger and encoding != primary_encoding:
+                    self.logger.warning(f"Successfully read {file_path} with fallback encoding: {encoding} (original: {primary_encoding})")
+                
+                return content
+                
+            except UnicodeDecodeError as e:
+                last_error = e
+                if self.logger:
+                    self.logger.debug(f"Failed to read {file_path} with {encoding}: {str(e)}")
+                continue
+            except Exception as e:
+                last_error = e
+                if self.logger:
+                    self.logger.debug(f"Error reading {file_path} with {encoding}: {str(e)}")
+                continue
+        
+        # If all encodings fail, try with error handling
+        try:
+            if self.logger:
+                self.logger.warning(f"All encodings failed for {file_path}, trying with error replacement")
+            
+            with open(file_path, 'r', encoding=primary_encoding, errors='replace') as f:
+                content = f.read()
+            
+            if self.logger:
+                self.logger.warning(f"Read {file_path} with error replacement - some characters may be corrupted")
+            
+            return content
+            
+        except Exception as e:
+            if self.logger:
+                self.logger.error(f"Failed to read {file_path} even with error replacement: {str(e)}")
+            raise Exception(f"Unable to read file {file_path} with any encoding. Last error: {last_error}")
     
     def _execute_batch(self, statements: List[str]) -> Dict[str, Any]:
         """

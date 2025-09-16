@@ -37,6 +37,10 @@ class PerformanceConfig:
     max_workers: int = 4
     batch_size: int = 1000
     memory_limit_mb: int = 1024
+    # Streaming import settings
+    chunk_size: int = 10000
+    queue_size: int = 100
+    use_streaming: bool = True
 
 
 @dataclass
@@ -117,6 +121,9 @@ class Config:
             config.performance.max_workers = perf_data.get('max_workers', config.performance.max_workers)
             config.performance.batch_size = perf_data.get('batch_size', config.performance.batch_size)
             config.performance.memory_limit_mb = perf_data.get('memory_limit_mb', config.performance.memory_limit_mb)
+            config.performance.chunk_size = perf_data.get('chunk_size', config.performance.chunk_size)
+            config.performance.queue_size = perf_data.get('queue_size', config.performance.queue_size)
+            config.performance.use_streaming = perf_data.get('use_streaming', config.performance.use_streaming)
         
         # Logging configuration
         if 'logging' in data:

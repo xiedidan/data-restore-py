@@ -29,6 +29,9 @@ from oracle_to_postgres.common.sql_rewriter import SQLRewriter
 from oracle_to_postgres.common.parallel_importer import (
     ParallelImporter, ImportTask, ImportResult, ImportProgress
 )
+from oracle_to_postgres.common.streaming_parallel_importer import (
+    StreamingParallelImporter, StreamingProgress
+)
 from oracle_to_postgres.common.report import ReportGenerator
 from oracle_to_postgres.common.error_handler import ErrorHandler, ErrorContext, ErrorType
 
@@ -108,15 +111,28 @@ class DataImporter:
     
     def _init_parallel_importer(self):
         """Initialize parallel importer."""
-        self.parallel_importer = ParallelImporter(
-            db_manager=self.db_manager,
-            sql_rewriter=self.sql_rewriter,
-            max_workers=self.config.performance.max_workers,
-            batch_size=self.config.performance.batch_size,
-            logger=self.logger
-        )
-        
-        self.logger.info(f"Parallel importer initialized with {self.config.performance.max_workers} workers")
+        if self.config.performance.use_streaming:
+            # Use streaming parallel importer for large files
+            self.streaming_importer = StreamingParallelImporter(
+                db_manager=self.db_manager,
+                sql_rewriter=self.sql_rewriter,
+                max_workers=self.config.performance.max_workers,
+                chunk_size=self.config.performance.chunk_size,
+                queue_size=self.config.performance.queue_size,
+                logger=self.logger
+            )
+            self.logger.info(f"Streaming parallel importer initialized with {self.config.performance.max_workers} workers, "
+                           f"chunk size: {self.config.performance.chunk_size}")
+        else:
+            # Use traditional file-based parallel importer
+            self.parallel_importer = ParallelImporter(
+                db_manager=self.db_manager,
+                sql_rewriter=self.sql_rewriter,
+                max_workers=self.config.performance.max_workers,
+                batch_size=self.config.performance.batch_size,
+                logger=self.logger
+            )
+            self.logger.info(f"Traditional parallel importer initialized with {self.config.performance.max_workers} workers")
     
     def load_encoding_report(self) -> Dict[str, str]:
         """
@@ -301,6 +317,132 @@ class DataImporter:
         if progress.current_file:
             self.logger.debug(f"Currently processing: {progress.current_file}")
     
+    def streaming_progress_callback(self, progress: StreamingProgress):
+        """
+        Progress callback for streaming import monitoring.
+        
+        Args:
+            progress: Current streaming import progress
+        """
+        elapsed = progress.elapsed_time
+        remaining = progress.estimated_remaining_time
+        
+        self.logger.info(
+            f"Streaming Progress: {progress.completion_percentage:.1f}% "
+            f"({progress.completed_chunks}/{progress.total_chunks} chunks) "
+            f"- Processed: {progress.processed_statements} statements "
+            f"- Elapsed: {elapsed:.1f}s, Remaining: {remaining:.1f}s"
+        )
+    
+    def _execute_streaming_import(self, sql_files: List[str], encoding_map: Dict[str, str]) -> List[ImportResult]:
+        """
+        Execute streaming import for large files.
+        
+        Args:
+            sql_files: List of SQL file paths
+            encoding_map: Mapping of file paths to encodings
+            
+        Returns:
+            List of import results (converted from chunk results)
+        """
+        self.logger.info(f"Starting streaming import of {len(sql_files)} files...")
+        all_results = []
+        
+        for sql_file in sql_files:
+            file_name = os.path.basename(sql_file)
+            
+            # Get encoding
+            if sql_file in encoding_map:
+                encoding = encoding_map[sql_file]
+            elif file_name in encoding_map:
+                encoding = encoding_map[file_name]
+            else:
+                encoding = self.detect_file_encoding(sql_file)
+            
+            self.logger.info(f"Starting streaming import of {file_name} (encoding: {encoding})")
+            
+            try:
+                # Import file using streaming parallel importer
+                chunk_results = self.streaming_importer.import_file(
+                    file_path=sql_file,
+                    encoding=encoding,
+                    progress_callback=self.streaming_progress_callback
+                )
+                
+                # Convert chunk results to import result
+                import_result = self._convert_chunk_results_to_import_result(
+                    sql_file, chunk_results
+                )
+                all_results.append(import_result)
+                
+                self.logger.info(f"Completed streaming import of {file_name}: "
+                               f"{import_result.records_processed} processed, "
+                               f"{import_result.records_failed} failed")
+                
+            except Exception as e:
+                # Create failed import result
+                error_result = ImportResult(
+                    file_path=sql_file,
+                    table_name=os.path.splitext(file_name)[0],
+                    success=False,
+                    records_processed=0,
+                    records_failed=0,
+                    processing_time=0.0,
+                    error_message=str(e)
+                )
+                all_results.append(error_result)
+                self.logger.error(f"Failed to import {file_name}: {str(e)}")
+        
+        return all_results
+    
+    def _convert_chunk_results_to_import_result(self, file_path: str, chunk_results) -> ImportResult:
+        """
+        Convert chunk results to a single import result.
+        
+        Args:
+            file_path: Path to the imported file
+            chunk_results: List of chunk results
+            
+        Returns:
+            Consolidated import result
+        """
+        file_name = os.path.basename(file_path)
+        table_name = os.path.splitext(file_name)[0]
+        
+        # Remove common prefixes/suffixes
+        if table_name.startswith('insert_'):
+            table_name = table_name[7:]
+        if table_name.endswith('_data'):
+            table_name = table_name[:-5]
+        
+        # Aggregate results
+        total_processed = sum(r.processed_statements for r in chunk_results)
+        total_failed = sum(r.failed_statements for r in chunk_results)
+        total_time = sum(r.processing_time for r in chunk_results)
+        success = all(r.success for r in chunk_results)
+        
+        # Collect warnings and errors
+        warnings = []
+        errors = []
+        for r in chunk_results:
+            if r.warnings:
+                warnings.extend(r.warnings)
+            if r.error_message:
+                errors.append(r.error_message)
+        
+        error_message = "; ".join(errors) if errors else None
+        
+        return ImportResult(
+            file_path=file_path,
+            table_name=table_name,
+            success=success,
+            records_processed=total_processed,
+            records_failed=total_failed,
+            processing_time=total_time,
+            error_message=error_message,
+            warnings=warnings
+        )
+    
     def import_data(self) -> List[ImportResult]:
         """
         Execute the data import process.
@@ -331,12 +473,15 @@ class DataImporter:
             # Update statistics
             self.import_stats['total_files'] = len(import_tasks)
             
-            # Execute parallel import
-            self.logger.info(f"Starting parallel import of {len(import_tasks)} files...")
-            results = self.parallel_importer.import_files(
-                import_tasks=import_tasks,
-                progress_callback=self.progress_callback
-            )
+            # Execute import (streaming or traditional)
+            if self.config.performance.use_streaming:
+                results = self._execute_streaming_import(sql_files, encoding_map)
+            else:
+                self.logger.info(f"Starting traditional parallel import of {len(import_tasks)} files...")
+                results = self.parallel_importer.import_files(
+                    import_tasks=import_tasks,
+                    progress_callback=self.progress_callback
+                )
             
             # Update final statistics
             self._update_final_statistics(results)
