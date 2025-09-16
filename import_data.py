@@ -32,6 +32,9 @@ from oracle_to_postgres.common.parallel_importer import (
 from oracle_to_postgres.common.streaming_parallel_importer import (
     StreamingParallelImporter, StreamingProgress
 )
+from oracle_to_postgres.common.optimized_streaming_importer import (
+    OptimizedStreamingImporter
+)
 from oracle_to_postgres.common.report import ReportGenerator
 from oracle_to_postgres.common.error_handler import ErrorHandler, ErrorContext, ErrorType
 
@@ -112,17 +115,30 @@ class DataImporter:
     def _init_parallel_importer(self):
         """Initialize parallel importer."""
         if self.config.performance.use_streaming:
-            # Use streaming parallel importer for large files
-            self.streaming_importer = StreamingParallelImporter(
-                db_manager=self.db_manager,
-                sql_rewriter=self.sql_rewriter,
-                max_workers=self.config.performance.max_workers,
-                chunk_size=self.config.performance.chunk_size,
-                queue_size=self.config.performance.queue_size,
-                logger=self.logger
-            )
-            self.logger.info(f"Streaming parallel importer initialized with {self.config.performance.max_workers} workers, "
-                           f"chunk size: {self.config.performance.chunk_size}")
+            # Use optimized streaming importer for large files
+            if self.config.performance.use_multiprocessing:
+                self.streaming_importer = OptimizedStreamingImporter(
+                    db_manager=self.db_manager,
+                    sql_rewriter=self.sql_rewriter,
+                    max_workers=self.config.performance.max_workers,
+                    chunk_size_bytes=self.config.performance.chunk_size_bytes,
+                    use_multiprocessing=True,
+                    logger=self.logger
+                )
+                self.logger.info(f"Optimized multiprocessing importer initialized with {self.config.performance.max_workers} processes, "
+                               f"chunk size: {self.config.performance.chunk_size_bytes} bytes")
+            else:
+                # Fallback to threading-based streaming importer
+                self.streaming_importer = StreamingParallelImporter(
+                    db_manager=self.db_manager,
+                    sql_rewriter=self.sql_rewriter,
+                    max_workers=self.config.performance.max_workers,
+                    chunk_size=self.config.performance.chunk_size,
+                    queue_size=self.config.performance.queue_size,
+                    logger=self.logger
+                )
+                self.logger.info(f"Threading-based streaming importer initialized with {self.config.performance.max_workers} threads, "
+                               f"chunk size: {self.config.performance.chunk_size} statements")
         else:
             # Use traditional file-based parallel importer
             self.parallel_importer = ParallelImporter(

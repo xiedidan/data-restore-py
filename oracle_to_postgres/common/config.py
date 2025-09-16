@@ -39,8 +39,10 @@ class PerformanceConfig:
     memory_limit_mb: int = 1024
     # Streaming import settings
     chunk_size: int = 10000
+    chunk_size_bytes: int = 1048576  # 1MB
     queue_size: int = 100
     use_streaming: bool = True
+    use_multiprocessing: bool = True
 
 
 @dataclass
@@ -122,8 +124,10 @@ class Config:
             config.performance.batch_size = perf_data.get('batch_size', config.performance.batch_size)
             config.performance.memory_limit_mb = perf_data.get('memory_limit_mb', config.performance.memory_limit_mb)
             config.performance.chunk_size = perf_data.get('chunk_size', config.performance.chunk_size)
+            config.performance.chunk_size_bytes = perf_data.get('chunk_size_bytes', config.performance.chunk_size_bytes)
             config.performance.queue_size = perf_data.get('queue_size', config.performance.queue_size)
             config.performance.use_streaming = perf_data.get('use_streaming', config.performance.use_streaming)
+            config.performance.use_multiprocessing = perf_data.get('use_multiprocessing', config.performance.use_multiprocessing)
         
         # Logging configuration
         if 'logging' in data:
